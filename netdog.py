@@ -1,5 +1,5 @@
 """
-Network Diagnostics GUI - A lightweight, always-visible network monitoring tool
+NetDog Network Diagnostics GUI - A lightweight, always-visible network monitoring tool
 Provides real-time network performance metrics in a compact GUI
 """
 
@@ -29,10 +29,24 @@ class NetworkDiagnostics:
 
     def setup_window(self):
         """Configure the main window"""
-        self.root.title("Network Diagnostics")
+        self.root.title("NetDog Network Diagnostics")
         self.root.geometry("300x400")
         self.root.attributes('-topmost', True)
         self.root.attributes('-alpha', 0.9)
+
+        # Remove the default icon (removes feather icon)
+        self.root.iconbitmap(default='')
+        # Alternative method if the above doesn't work:
+        # self.root.wm_iconbitmap('')
+
+        # If you want to set a custom icon instead, uncomment this:
+        try:
+            # For PyInstaller, the icon should be in the same directory as the executable
+            icon_path = self.get_resource_path('NetDog_icon_highres.ico')
+            self.root.iconbitmap(icon_path)
+        except:
+            # Fallback: remove icon completely
+            self.root.iconbitmap(default='')
 
         # Position in top-right corner
         self.root.update_idletasks()
@@ -54,6 +68,16 @@ class NetworkDiagnostics:
 
         # Prevent window from going off-screen
         self.root.bind('<Configure>', self.on_configure)
+
+    def get_resource_path(self, relative_path):
+        """Get absolute path to resource, works for dev and for PyInstaller"""
+        try:
+            # PyInstaller creates a temp folder and stores path in _MEIPASS
+            base_path = sys._MEIPASS
+        except Exception:
+            base_path = os.path.abspath(".")
+
+        return os.path.join(base_path, relative_path)
 
     def setup_variables(self):
         """Initialize all variables and data structures"""
@@ -103,7 +127,7 @@ class NetworkDiagnostics:
         # Title bar (hidden in minimal mode)
         self.title_frame = ttk.Frame(self.main_frame)
 
-        title_label = ttk.Label(self.title_frame, text="Network Diagnostics",
+        title_label = ttk.Label(self.title_frame, text="NetDog Network Diagnostics",
                                 font=('Arial', 10, 'bold'))
         title_label.pack(side=tk.LEFT)
 
@@ -852,7 +876,7 @@ class NetworkDiagnostics:
             filepath = os.path.join(os.path.expanduser('~'), 'Desktop', filename)
 
             with open(filepath, 'w') as f:
-                f.write("Network Diagnostics Export\n")
+                f.write("NetDog Network Diagnostics Export\n")
                 f.write("=" * 40 + "\n")
                 f.write(f"Export Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}\n\n")
 
