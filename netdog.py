@@ -34,19 +34,8 @@ class NetworkDiagnostics:
         self.root.attributes('-topmost', True)
         self.root.attributes('-alpha', 0.9)
 
-        # Remove the default icon (removes feather icon)
-        self.root.iconbitmap(default='')
-        # Alternative method if the above doesn't work:
-        # self.root.wm_iconbitmap('')
-
-        # If you want to set a custom icon instead, uncomment this:
-        try:
-            # For PyInstaller, the icon should be in the same directory as the executable
-            icon_path = self.get_resource_path('NetDog_icon_highres.ico')
-            self.root.iconbitmap(icon_path)
-        except:
-            # Fallback: remove icon completely
-            self.root.iconbitmap(default='')
+        # Set the window icon properly
+        self.set_window_icon()
 
         # Position in top-right corner
         self.root.update_idletasks()
@@ -68,6 +57,48 @@ class NetworkDiagnostics:
 
         # Prevent window from going off-screen
         self.root.bind('<Configure>', self.on_configure)
+
+    def set_window_icon(self):
+        """Set the window icon for NetDog"""
+        try:
+            # Get the icon file path
+            icon_path = self.get_resource_path('NetDog_icon_highres.ico')
+
+            if os.path.exists(icon_path):
+                self.root.iconbitmap(icon_path)
+                print(f"✅ Icon set successfully: {icon_path}")
+            else:
+                print(f"❌ Icon file not found: {icon_path}")
+                # Try fallback locations
+                fallback_paths = [
+                    'NetDog_icon_highres.ico',
+                    os.path.join(os.path.dirname(__file__), 'NetDog_icon_highres.ico'),
+                    os.path.join(os.getcwd(), 'NetDog_icon_highres.ico')
+                ]
+
+                icon_found = False
+                for fallback in fallback_paths:
+                    if os.path.exists(fallback):
+                        self.root.iconbitmap(fallback)
+                        print(f"✅ Using fallback icon: {fallback}")
+                        icon_found = True
+                        break
+
+                if not icon_found:
+                    print("⚠️  No icon file found - using default")
+                    # Try to remove the default Python icon
+                    try:
+                        self.root.iconbitmap(default='')
+                    except:
+                        pass
+
+        except Exception as e:
+            print(f"❌ Failed to set icon: {e}")
+            # Try to remove the default Python icon as fallback
+            try:
+                self.root.iconbitmap(default='')
+            except:
+                pass
 
     def get_resource_path(self, relative_path):
         """Get absolute path to resource, works for dev and for PyInstaller"""
