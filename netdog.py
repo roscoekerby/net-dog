@@ -1,4 +1,3 @@
-#!/usr/bin/env python3
 """
 Network Diagnostics GUI - A lightweight, always-visible network monitoring tool
 Provides real-time network performance metrics in a compact GUI
@@ -49,12 +48,16 @@ class NetworkDiagnostics:
         self.root.bind('<Button-1>', self.start_drag)
         self.root.bind('<B1-Motion>', self.on_drag)
 
+        # Bind dragging to all child widgets in minimal mode
+        self.root.bind_all('<Button-1>', self.start_drag)
+        self.root.bind_all('<B1-Motion>', self.on_drag)
+
         # Prevent window from going off-screen
         self.root.bind('<Configure>', self.on_configure)
 
     def setup_variables(self):
         """Initialize all variables and data structures"""
-        self.is_compact_mode = tk.BooleanVar(value=True)
+        self.view_mode = tk.StringVar(value="compact")  # "compact", "detailed", "minimal"
         self.is_monitoring = False
         self.monitoring_thread = None
         self.data_queue = queue.Queue()
@@ -78,7 +81,7 @@ class NetworkDiagnostics:
             'theme': 'light',
             'opacity': 0.9,
             'auto_start': False,
-            'compact_mode': True
+            'view_mode': 'compact'
         }
 
         # Historical data (24 hours)
@@ -97,22 +100,20 @@ class NetworkDiagnostics:
         self.main_frame = ttk.Frame(self.root, padding="10")
         self.main_frame.pack(fill=tk.BOTH, expand=True)
 
-        # Title bar
-        title_frame = ttk.Frame(self.main_frame)
-        title_frame.pack(fill=tk.X, pady=(0, 10))
+        # Title bar (hidden in minimal mode)
+        self.title_frame = ttk.Frame(self.main_frame)
 
-        title_label = ttk.Label(title_frame, text="Network Diagnostics",
+        title_label = ttk.Label(self.title_frame, text="Network Diagnostics",
                                 font=('Arial', 10, 'bold'))
         title_label.pack(side=tk.LEFT)
 
-        # Toggle button
-        self.toggle_btn = ttk.Button(title_frame, text="◀", width=3,
-                                     command=self.toggle_view)
+        # View toggle button
+        self.toggle_btn = ttk.Button(self.title_frame, text="●", width=3,
+                                     command=self.cycle_view_mode)
         self.toggle_btn.pack(side=tk.RIGHT)
 
-        # Status indicator
+        # Status indicator (hidden in minimal mode)
         self.status_frame = ttk.Frame(self.main_frame)
-        self.status_frame.pack(fill=tk.X, pady=(0, 10))
 
         self.status_canvas = tk.Canvas(self.status_frame, width=20, height=20)
         self.status_canvas.pack(side=tk.LEFT)
@@ -122,6 +123,10 @@ class NetworkDiagnostics:
         self.status_label = ttk.Label(self.status_frame, text="Initializing...")
         self.status_label.pack(side=tk.LEFT, padx=(10, 0))
 
+        # Minimal view frame (League of Legends style)
+        self.minimal_frame = ttk.Frame(self.main_frame)
+        self.create_minimal_view()
+
         # Compact view frame
         self.compact_frame = ttk.Frame(self.main_frame)
         self.create_compact_view()
@@ -130,9 +135,8 @@ class NetworkDiagnostics:
         self.detailed_frame = ttk.Frame(self.main_frame)
         self.create_detailed_view()
 
-        # Control buttons frame
+        # Control buttons frame (hidden in minimal mode)
         self.controls_frame = ttk.Frame(self.main_frame)
-        self.controls_frame.pack(fill=tk.X, pady=(10, 0))
 
         ttk.Button(self.controls_frame, text="Refresh",
                    command=self.manual_refresh).pack(side=tk.LEFT)
@@ -141,12 +145,48 @@ class NetworkDiagnostics:
         ttk.Button(self.controls_frame, text="Exit",
                    command=self.on_closing).pack(side=tk.RIGHT)
 
-        # Show initial view
-        self.toggle_view()
+        # Set initial view
+        self.view_mode.set(self.config.get('view_mode', 'compact'))
+        self.update_view_mode()
 
         # Context menu
         self.create_context_menu()
         self.root.bind('<Button-3>', self.show_context_menu)
+
+    def create_minimal_view(self):
+        """Create the minimal League of Legends style view"""
+        self.minimal_container = tk.Frame(self.minimal_frame, bg='black', padx=8, pady=4)
+        self.minimal_container.pack()
+
+        # Single frame to hold all elements in one line
+        content_frame = tk.Frame(self.minimal_container, bg='black')
+        content_frame.pack()
+
+        # Status dot (left side)
+        self.minimal_dot_canvas = tk.Canvas(content_frame, width=12, height=12,
+                                            bg='black', highlightthickness=0)
+        self.minimal_dot_canvas.pack(side=tk.LEFT, padx=(0, 6))
+        self.minimal_dot = self.minimal_dot_canvas.create_oval(2, 2, 10, 10,
+                                                               fill='gray', outline='white', width=1)
+
+        # Ping text (middle)
+        self.minimal_ping_label = tk.Label(content_frame, text="-- ms",
+                                           fg='white', bg='black',
+                                           font=('Arial', 11, 'bold'))
+        self.minimal_ping_label.pack(side=tk.LEFT)
+
+        # Triangle button to expand/cycle view (right side)
+        self.minimal_expand_btn = tk.Label(
+            content_frame,
+            text="▸",  # Triangle pointing right
+            font=("Arial", 14, "bold"),
+            fg="white",
+            bg="black",
+            cursor="hand2",
+            padx=6, pady=0
+        )
+        self.minimal_expand_btn.pack(side=tk.LEFT, padx=(4, 0))  # Small gap from ping text
+        self.minimal_expand_btn.bind("<Button-1>", lambda e: self.cycle_view_mode())
 
     def create_compact_view(self):
         """Create the compact view with essential metrics"""
@@ -225,12 +265,21 @@ class NetworkDiagnostics:
         self.context_menu.add_command(label="Refresh Now", command=self.manual_refresh)
         self.context_menu.add_command(label="Reset Position", command=self.reset_position)
         self.context_menu.add_separator()
+        self.context_menu.add_command(label="Minimal View", command=lambda: self.set_view_mode("minimal"))
+        self.context_menu.add_command(label="Compact View", command=lambda: self.set_view_mode("compact"))
+        self.context_menu.add_command(label="Detailed View", command=lambda: self.set_view_mode("detailed"))
+        self.context_menu.add_separator()
         self.context_menu.add_command(label="Configuration", command=self.show_config)
         self.context_menu.add_separator()
         self.context_menu.add_command(label="Always on Top", command=self.toggle_topmost)
         self.context_menu.add_command(label="Export Data", command=self.export_data)
         self.context_menu.add_separator()
         self.context_menu.add_command(label="Exit", command=self.on_closing)
+
+    def set_view_mode(self, mode):
+        """Set specific view mode"""
+        self.view_mode.set(mode)
+        self.update_view_mode()
 
     def show_context_menu(self, event):
         """Show context menu"""
@@ -239,23 +288,74 @@ class NetworkDiagnostics:
         finally:
             self.context_menu.grab_release()
 
-    def toggle_view(self):
-        """Toggle between compact and detailed view"""
-        if self.is_compact_mode.get():
+    def cycle_view_mode(self):
+        """Cycle through view modes: minimal -> compact -> detailed"""
+        current_mode = self.view_mode.get()
+        if current_mode == "minimal":
+            self.view_mode.set("compact")
+        elif current_mode == "compact":
+            self.view_mode.set("detailed")
+        else:
+            self.view_mode.set("minimal")
+
+        self.update_view_mode()
+
+    def update_view_mode(self):
+        """Update the display based on current view mode"""
+        mode = self.view_mode.get()
+
+        # Hide all frames first
+        self.minimal_frame.pack_forget()
+        self.compact_frame.pack_forget()
+        self.detailed_frame.pack_forget()
+        self.title_frame.pack_forget()
+        self.status_frame.pack_forget()
+        self.controls_frame.pack_forget()
+
+        if mode == "minimal":
+            # Minimal mode - just ping, dot, and tiny expand button
+            self.minimal_frame.pack(fill=tk.BOTH, expand=True)
+            self.root.update_idletasks()
+            self.root.geometry(f"{self.minimal_container.winfo_reqwidth()}x{self.minimal_container.winfo_reqheight()}")
+            self.toggle_btn.config(text="●")
+            self.main_frame.config(padding="0")
+
+            # Remove window decorations for true minimal look
+            self.root.overrideredirect(True)
+
+        elif mode == "compact":
+            # Compact mode - essential info
+            self.root.overrideredirect(False)  # Restore window decorations
+            self.title_frame.pack(fill=tk.X, pady=(0, 10))
+            self.status_frame.pack(fill=tk.X, pady=(0, 10))
             self.compact_frame.pack(fill=tk.BOTH, expand=True)
-            self.detailed_frame.pack_forget()
+            self.controls_frame.pack(fill=tk.X, pady=(10, 0))
             self.root.geometry("300x200")
             self.toggle_btn.config(text="▼")
-            self.is_compact_mode.set(False)
-        else:
+            self.main_frame.config(padding="10")
+
+        else:  # detailed
+            # Detailed mode - all information
+            self.root.overrideredirect(False)  # Restore window decorations
+            self.title_frame.pack(fill=tk.X, pady=(0, 10))
+            self.status_frame.pack(fill=tk.X, pady=(0, 10))
             self.detailed_frame.pack(fill=tk.BOTH, expand=True)
-            self.compact_frame.pack_forget()
+            self.controls_frame.pack(fill=tk.X, pady=(10, 0))
             self.root.geometry("300x500")
             self.toggle_btn.config(text="▲")
-            self.is_compact_mode.set(True)
+            self.main_frame.config(padding="10")
+
+        # Save preference
+        self.config['view_mode'] = mode
+
+    def toggle_view(self):
+        """Legacy method for backward compatibility"""
+        self.cycle_view_mode()
 
     def start_drag(self, event):
-        """Start dragging the window"""
+        if self.view_mode.get() == "minimal":
+            if hasattr(self, 'minimal_expand_btn') and event.widget == self.minimal_expand_btn:
+                return
         self.drag_start_x = event.x
         self.drag_start_y = event.y
 
@@ -525,26 +625,44 @@ class NetworkDiagnostics:
         # Update ping with color coding
         if 'ping' in data and data['ping'] is not None:
             ping_val = data['ping']
-            self.ping_latency.set(f"{ping_val} ms")
+            ping_text = f"{ping_val} ms"
+            self.ping_latency.set(ping_text)
 
             # Color coding for ping
             color = 'green'
+            dot_color = 'lime'
             if ping_val > 100:
                 color = 'red'
+                dot_color = 'red'
             elif ping_val > 50:
                 color = 'orange'
+                dot_color = 'yellow'
 
             # Apply color to labels
             if hasattr(self, 'ping_label'):
                 self.ping_label.config(foreground=color)
             if hasattr(self, 'ping_label_detailed'):
                 self.ping_label_detailed.config(foreground=color)
+
+            # Update minimal view
+            if hasattr(self, 'minimal_ping_label'):
+                self.minimal_ping_label.config(text=f"{ping_val}ms", fg='white')
+            if hasattr(self, 'minimal_dot_canvas'):
+                self.minimal_dot_canvas.itemconfig(self.minimal_dot, fill=dot_color)
+
         else:
-            self.ping_latency.set("Timeout")
+            ping_text = "Timeout"
+            self.ping_latency.set(ping_text)
             if hasattr(self, 'ping_label'):
                 self.ping_label.config(foreground='red')
             if hasattr(self, 'ping_label_detailed'):
                 self.ping_label_detailed.config(foreground='red')
+
+            # Update minimal view for timeout
+            if hasattr(self, 'minimal_ping_label'):
+                self.minimal_ping_label.config(text="Timeout", fg='red')
+            if hasattr(self, 'minimal_dot_canvas'):
+                self.minimal_dot_canvas.itemconfig(self.minimal_dot, fill='red')
 
         # Update signal strength
         if 'signal' in data and data['signal'] is not None:
@@ -833,7 +951,7 @@ class ConfigDialog:
 
         ttk.Label(appear_frame, text="Window Opacity:").pack(anchor=tk.W)
         self.opacity_var = tk.DoubleVar(value=self.config['opacity'])
-        opacity_scale = ttk.Scale(appear_frame, from_=0.5, to=1.0, variable=self.opacity_var,
+        opacity_scale = ttk.Scale(appear_frame, from_=0.0, to=1.0, variable=self.opacity_var,
                                   orient=tk.HORIZONTAL, length=200)
         opacity_scale.pack(anchor=tk.W, pady=(5, 0))
 
@@ -856,6 +974,22 @@ class ConfigDialog:
         ttk.Radiobutton(theme_frame, text="Dark", variable=self.theme_var,
                         value="dark").pack(side=tk.LEFT, padx=(10, 0))
 
+        # View Mode Settings
+        view_frame = ttk.LabelFrame(main_frame, text="View Settings", padding="10")
+        view_frame.pack(fill=tk.X, pady=(0, 10))
+
+        ttk.Label(view_frame, text="Default View Mode:").pack(anchor=tk.W)
+        self.view_mode_var = tk.StringVar(value=self.config['view_mode'])
+        view_mode_frame = ttk.Frame(view_frame)
+        view_mode_frame.pack(anchor=tk.W, pady=(5, 0))
+
+        ttk.Radiobutton(view_mode_frame, text="Minimal", variable=self.view_mode_var,
+                        value="minimal").pack(side=tk.LEFT)
+        ttk.Radiobutton(view_mode_frame, text="Compact", variable=self.view_mode_var,
+                        value="compact").pack(side=tk.LEFT, padx=(10, 0))
+        ttk.Radiobutton(view_mode_frame, text="Detailed", variable=self.view_mode_var,
+                        value="detailed").pack(side=tk.LEFT, padx=(10, 0))
+
         # Startup Settings
         startup_frame = ttk.LabelFrame(main_frame, text="Startup", padding="10")
         startup_frame.pack(fill=tk.X, pady=(0, 10))
@@ -863,10 +997,6 @@ class ConfigDialog:
         self.autostart_var = tk.BooleanVar(value=self.config['auto_start'])
         ttk.Checkbutton(startup_frame, text="Start with Windows",
                         variable=self.autostart_var).pack(anchor=tk.W)
-
-        self.compact_var = tk.BooleanVar(value=self.config['compact_mode'])
-        ttk.Checkbutton(startup_frame, text="Start in compact mode",
-                        variable=self.compact_var).pack(anchor=tk.W)
 
         # Buttons
         button_frame = ttk.Frame(main_frame)
@@ -889,10 +1019,10 @@ class ConfigDialog:
 
             self.config['ping_timeout'] = max(1, int(float(self.ping_timeout_var.get())))
             self.config['refresh_interval'] = max(1, int(float(self.refresh_var.get())))
-            self.config['opacity'] = max(0.5, min(1.0, self.opacity_var.get()))
+            self.config['opacity'] = max(0.0, min(1.0, self.opacity_var.get()))
             self.config['theme'] = self.theme_var.get()
             self.config['auto_start'] = self.autostart_var.get()
-            self.config['compact_mode'] = self.compact_var.get()
+            self.config['view_mode'] = self.view_mode_var.get()
 
             self.callback(self.config)
             self.dialog.destroy()
@@ -913,7 +1043,7 @@ class ConfigDialog:
             'theme': 'light',
             'opacity': 0.9,
             'auto_start': False,
-            'compact_mode': True
+            'view_mode': 'compact'
         }
 
         self.ping_targets_text.delete('1.0', tk.END)
@@ -923,7 +1053,7 @@ class ConfigDialog:
         self.opacity_var.set(defaults['opacity'])
         self.theme_var.set(defaults['theme'])
         self.autostart_var.set(defaults['auto_start'])
-        self.compact_var.set(defaults['compact_mode'])
+        self.view_mode_var.set(defaults['view_mode'])
 
 
 def main():
