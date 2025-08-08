@@ -1,6 +1,6 @@
 """
-NetDog Network Diagnostics GUI - Headless Background Version
-Fixed console popup issue when running as EXE
+NetDog Network Diagnostics GUI - A lightweight, always-visible network monitoring tool
+Provides real-time network performance metrics in a compact GUI
 """
 
 import tkinter as tk
@@ -16,11 +16,6 @@ import os
 from datetime import datetime, timedelta
 import queue
 import sys
-
-# Hide console window on Windows when running as EXE
-if platform.system() == 'Windows' and getattr(sys, 'frozen', False):
-    import ctypes
-    ctypes.windll.user32.ShowWindow(ctypes.windll.kernel32.GetConsoleWindow(), 0)
 
 
 class NetworkDiagnostics:
@@ -548,20 +543,16 @@ class NetworkDiagnostics:
         return info
 
     def get_wifi_ssid(self):
-        """Get current WiFi SSID with hidden console"""
+        """Get current WiFi SSID"""
         try:
             if platform.system() == 'Windows':
-                # Use CREATE_NO_WINDOW flag to prevent console popup
-                startupinfo = subprocess.STARTUPINFO()
-                startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-                startupinfo.wShowWindow = subprocess.SW_HIDE
-
-                result = subprocess.run(['netsh', 'wlan', 'show', 'interfaces'],
-                                       capture_output=True, text=True, timeout=5,
-                                       startupinfo=startupinfo,
-                                       creationflags=subprocess.CREATE_NO_WINDOW)
+                result = subprocess.run(['netsh', 'wlan', 'show', 'profile'],
+                                        capture_output=True, text=True, timeout=5)
                 if result.returncode == 0:
-                    for line in result.stdout.split('\n'):
+                    # Parse current connection
+                    result2 = subprocess.run(['netsh', 'wlan', 'show', 'interfaces'],
+                                             capture_output=True, text=True, timeout=5)
+                    for line in result2.stdout.split('\n'):
                         if 'SSID' in line and 'BSSID' not in line:
                             return line.split(':', 1)[1].strip()
             return "WiFi Network"
@@ -569,7 +560,7 @@ class NetworkDiagnostics:
             return "WiFi Network"
 
     def get_ping_latency(self):
-        """Get ping latency to configured targets with hidden console"""
+        """Get ping latency to configured targets"""
         try:
             total_time = 0
             successful_pings = 0
@@ -577,16 +568,9 @@ class NetworkDiagnostics:
             for target in self.config['ping_targets']:
                 try:
                     if platform.system() == 'Windows':
-                        # Critical fix: Hide console window for subprocess calls
-                        startupinfo = subprocess.STARTUPINFO()
-                        startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-                        startupinfo.wShowWindow = subprocess.SW_HIDE
-
                         result = subprocess.run(
                             ['ping', '-n', '1', '-w', str(self.config['ping_timeout'] * 1000), target],
-                            capture_output=True, text=True, timeout=self.config['ping_timeout'] + 1,
-                            startupinfo=startupinfo,
-                            creationflags=subprocess.CREATE_NO_WINDOW
+                            capture_output=True, text=True, timeout=self.config['ping_timeout'] + 1
                         )
 
                         if result.returncode == 0:
@@ -600,19 +584,13 @@ class NetworkDiagnostics:
                                         successful_pings += 1
                                     break
                     else:
-                        # Linux/Mac ping - also hide output
+                        # Linux/Mac ping
                         result = subprocess.run(
                             ['ping', '-c', '1', '-W', str(self.config['ping_timeout']), target],
-                            capture_output=True, text=True, timeout=self.config['ping_timeout'] + 1,
-                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+                            capture_output=True, text=True, timeout=self.config['ping_timeout'] + 1
                         )
 
                         if result.returncode == 0:
-                            # Re-run to get output for parsing (minimal impact)
-                            result = subprocess.run(
-                                ['ping', '-c', '1', '-W', str(self.config['ping_timeout']), target],
-                                capture_output=True, text=True, timeout=self.config['ping_timeout'] + 1
-                            )
                             for line in result.stdout.split('\n'):
                                 if 'time=' in line:
                                     time_part = line.split('time=')[1].split(' ')[0]
@@ -635,18 +613,11 @@ class NetworkDiagnostics:
             return None
 
     def get_signal_strength(self):
-        """Get WiFi signal strength with hidden console"""
+        """Get WiFi signal strength (Windows only for now)"""
         try:
             if platform.system() == 'Windows':
-                # Hide console window for subprocess calls
-                startupinfo = subprocess.STARTUPINFO()
-                startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-                startupinfo.wShowWindow = subprocess.SW_HIDE
-
                 result = subprocess.run(['netsh', 'wlan', 'show', 'interfaces'],
-                                       capture_output=True, text=True, timeout=5,
-                                       startupinfo=startupinfo,
-                                       creationflags=subprocess.CREATE_NO_WINDOW)
+                                        capture_output=True, text=True, timeout=5)
                 if result.returncode == 0:
                     for line in result.stdout.split('\n'):
                         if 'Signal' in line:
