@@ -1,0 +1,86 @@
+NetDog - How to Build the Windows EXE
+======================================
+
+
+REQUIREMENTS
+------------
+- Python 3.8 or later  (https://www.python.org/downloads/)
+  Make sure "Add Python to PATH" is checked during install.
+
+- The following Python packages:
+    pip install pyinstaller psutil requests pillow
+
+
+FILES NEEDED IN THE SAME FOLDER
+--------------------------------
+- netdog.py
+- NetDog.spec
+- NetDog_icon_highres.ico
+
+
+HOW TO BUILD
+------------
+Open a terminal (CMD or PowerShell) in the net-dog folder, then run:
+
+    pyinstaller NetDog.spec
+
+That's it. PyInstaller will create two folders:
+  - build\   (intermediate files, can be deleted)
+  - dist\    (contains NetDog.exe)
+
+The finished executable is at:
+
+    dist\NetDog.exe
+
+
+WHAT THE SPEC FILE DOES
+-----------------------
+- Bundles netdog.py into a single standalone EXE (no Python install needed on target machine)
+- Includes psutil and requests as hidden imports
+- Embeds NetDog_icon_highres.ico as both the window icon and the EXE file icon
+- Disables the console window (console=False) so no black terminal pops up when running
+- Enables UPX compression to reduce file size (upx=True)
+
+
+REBUILDING AFTER CODE CHANGES
+------------------------------
+Just re-run the same command:
+
+    pyinstaller NetDog.spec
+
+PyInstaller will overwrite the previous build in dist\.
+
+
+CLEAN BUILD (if something looks wrong)
+---------------------------------------
+Delete the build\ and dist\ folders manually, then run:
+
+    pyinstaller NetDog.spec
+
+
+DISTRIBUTING
+------------
+You only need to share the single file:
+
+    dist\NetDog.exe
+
+No Python, no extra files, no installer needed. The target machine just runs it.
+
+
+TROUBLESHOOTING
+---------------
+"pyinstaller: command not found"
+  -> Run: pip install pyinstaller
+     If pip is not found, reinstall Python with "Add to PATH" checked.
+
+"ModuleNotFoundError" when running the EXE
+  -> Add the missing module to hiddenimports in NetDog.spec:
+       hiddenimports=['psutil', 'requests', 'your_module_here']
+     Then rebuild.
+
+Icon not showing
+  -> Make sure NetDog_icon_highres.ico is in the same folder as NetDog.spec before building.
+
+Windows Defender flags the EXE
+  -> This is common with PyInstaller EXEs. Add an exclusion in Windows Security for the dist\ folder.
+     It is a false positive caused by the PyInstaller bootloader, not actual malware.

@@ -95,3 +95,4 @@ celerybeat.pid
 .ropeproject
 .env
 .envrc
+.claude/
