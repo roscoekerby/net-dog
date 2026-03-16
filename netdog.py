@@ -1315,7 +1315,8 @@ class ConfigDialog:
 
         def on_speed(v):
             mins = int(float(v))
-            speed_val_lbl.config(text=f"{mins} min  (~{mins * 6} MB/day)")
+            mb = int((1440 / mins) * 6)
+            speed_val_lbl.config(text=f"{mins} min  (~{mb} MB/day)")
         self._slider(inner, 15, 120, self.speed_interval_var, on_speed).pack(
             anchor='w', padx=14, pady=(2, 0))
         on_speed(self.speed_interval_var.get())
@@ -1331,14 +1332,14 @@ class ConfigDialog:
         def on_opacity(v):
             val = round(float(v), 2)
             opacity_val_lbl.config(text=f"{val:.0%}")
-            # Live preview on the main window
             try:
                 self.parent.attributes('-alpha', max(0.1, val))
             except Exception:
                 pass
 
-        self._slider(inner, 0.1, 1.0, self.opacity_var, on_opacity).pack(
-            anchor='w', padx=14, pady=(2, 0))
+        opacity_scale = self._slider(inner, 0.1, 1.0, self.opacity_var, on_opacity)
+        opacity_scale.config(resolution=0.01, digits=3)
+        opacity_scale.pack(anchor='w', padx=14, pady=(2, 0))
         on_opacity(self.opacity_var.get())
 
         # ── VIEW ──────────────────────────────────────────────────────────
