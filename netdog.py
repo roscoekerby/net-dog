@@ -1178,149 +1178,203 @@ class ConfigDialog:
     def __init__(self, parent, config, callback):
         self.config = config.copy()
         self.callback = callback
+        self.parent = parent
 
         self.dialog = tk.Toplevel(parent)
-        self.dialog.title("Configuration")
-        self.dialog.geometry("400x500")
+        self.dialog.title("NetDog — Configuration")
+        self.dialog.geometry("420x520")
+        self.dialog.minsize(380, 300)
+        self.dialog.configure(bg=BG)
         self.dialog.transient(parent)
         self.dialog.grab_set()
 
-        # Center the dialog
         self.dialog.update_idletasks()
-        x = parent.winfo_x() + (parent.winfo_width() // 2) - (self.dialog.winfo_width() // 2)
-        y = parent.winfo_y() + (parent.winfo_height() // 2) - (self.dialog.winfo_height() // 2)
+        x = parent.winfo_x() + (parent.winfo_width() // 2) - 210
+        y = parent.winfo_y() + (parent.winfo_height() // 2) - 260
         self.dialog.geometry(f"+{x}+{y}")
 
         self.create_widgets()
 
+    # ── helpers ──────────────────────────────────────────────────────────────
+
+    def _section(self, parent, title):
+        """Dark section header with rule"""
+        f = tk.Frame(parent, bg=BG)
+        f.pack(fill=tk.X, padx=12, pady=(12, 4))
+        tk.Label(f, text=title, fg=ACCENT, bg=BG,
+                 font=('Segoe UI', 7, 'bold')).pack(side=tk.LEFT)
+        tk.Frame(f, bg=BORDER, height=1).pack(side=tk.LEFT, fill=tk.X,
+                                              expand=True, padx=(6, 0), pady=3)
+
+    def _label(self, parent, text):
+        return tk.Label(parent, text=text, fg=TEXT_DIM, bg=BG, font=F_UI_SM,
+                        anchor='w')
+
+    def _slider(self, parent, from_, to, var, command=None):
+        s = tk.Scale(parent, from_=from_, to=to, variable=var,
+                     orient=tk.HORIZONTAL, length=260,
+                     bg=BG, fg=TEXT, troughcolor=BG_CARD,
+                     highlightthickness=0, bd=0,
+                     activebackground=ACCENT, sliderrelief='flat',
+                     command=command)
+        return s
+
+    # ── layout ───────────────────────────────────────────────────────────────
+
     def create_widgets(self):
-        """Create configuration widgets"""
-        # Main frame with scrollbar
-        main_frame = ttk.Frame(self.dialog, padding="10")
-        main_frame.pack(fill=tk.BOTH, expand=True)
+        # ── Fixed button bar at bottom ─────────────────────────────────────
+        btn_bar = tk.Frame(self.dialog, bg=BG_PANEL)
+        btn_bar.pack(side=tk.BOTTOM, fill=tk.X)
+        tk.Frame(btn_bar, bg=BORDER, height=1).pack(fill=tk.X)
+        btn_inner = tk.Frame(btn_bar, bg=BG_PANEL)
+        btn_inner.pack(fill=tk.X, padx=8, pady=6)
 
-        # Network Settings
-        net_frame = ttk.LabelFrame(main_frame, text="Network Settings", padding="10")
-        net_frame.pack(fill=tk.X, pady=(0, 10))
+        def _btn(parent, text, cmd):
+            b = tk.Button(parent, text=text, command=cmd,
+                          fg=TEXT_DIM, bg=BG_PANEL, font=F_UI_SM,
+                          relief='flat', bd=0, cursor='hand2',
+                          activebackground=BORDER, activeforeground=TEXT,
+                          padx=12, pady=4)
+            b.bind('<Enter>', lambda e: b.config(fg=TEXT, bg=BG_CARD))
+            b.bind('<Leave>', lambda e: b.config(fg=TEXT_DIM, bg=BG_PANEL))
+            return b
 
-        ttk.Label(net_frame, text="Ping Targets (one per line):").pack(anchor=tk.W)
-        self.ping_targets_text = tk.Text(net_frame, height=4, width=40)
-        self.ping_targets_text.pack(fill=tk.X, pady=(5, 10))
+        _btn(btn_inner, "Reset Defaults", self.reset_defaults).pack(side=tk.LEFT)
+        _btn(btn_inner, "Cancel", self.cancel_clicked).pack(side=tk.RIGHT)
+        _btn(btn_inner, "Save", self.ok_clicked).pack(side=tk.RIGHT, padx=(0, 4))
+
+        # ── Scrollable content area ────────────────────────────────────────
+        container = tk.Frame(self.dialog, bg=BG)
+        container.pack(fill=tk.BOTH, expand=True)
+
+        canvas = tk.Canvas(container, bg=BG, highlightthickness=0, bd=0)
+        scrollbar = tk.Scrollbar(container, orient='vertical',
+                                 command=canvas.yview)
+        canvas.configure(yscrollcommand=scrollbar.set)
+
+        scrollbar.pack(side=tk.RIGHT, fill=tk.Y)
+        canvas.pack(side=tk.LEFT, fill=tk.BOTH, expand=True)
+
+        inner = tk.Frame(canvas, bg=BG)
+        inner_id = canvas.create_window((0, 0), window=inner, anchor='nw')
+
+        def on_resize(e):
+            canvas.itemconfig(inner_id, width=e.width)
+        canvas.bind('<Configure>', on_resize)
+
+        def on_frame_configure(e):
+            canvas.configure(scrollregion=canvas.bbox('all'))
+        inner.bind('<Configure>', on_frame_configure)
+
+        # Mouse wheel scrolling
+        def on_mousewheel(e):
+            canvas.yview_scroll(int(-1 * (e.delta / 120)), 'units')
+        canvas.bind_all('<MouseWheel>', on_mousewheel)
+        self.dialog.bind('<Destroy>', lambda e: canvas.unbind_all('<MouseWheel>'))
+
+        # ── NETWORK ───────────────────────────────────────────────────────
+        self._section(inner, "NETWORK")
+
+        self._label(inner, "Ping targets (one per line):").pack(anchor='w', padx=14)
+        self.ping_targets_text = tk.Text(inner, height=3, width=36,
+                                         bg=BG_CARD, fg=TEXT, font=F_MONO_SM,
+                                         insertbackground=TEXT, relief='flat',
+                                         highlightbackground=BORDER,
+                                         highlightthickness=1)
+        self.ping_targets_text.pack(fill=tk.X, padx=14, pady=(4, 0))
         self.ping_targets_text.insert(tk.END, '\n'.join(self.config['ping_targets']))
 
-        ttk.Label(net_frame, text="Ping Timeout (seconds):").pack(anchor=tk.W)
+        self._label(inner, "Ping timeout (seconds):").pack(anchor='w', padx=14, pady=(8, 0))
         self.ping_timeout_var = tk.StringVar(value=str(self.config['ping_timeout']))
-        ttk.Entry(net_frame, textvariable=self.ping_timeout_var, width=10).pack(anchor=tk.W, pady=(5, 0))
+        tk.Entry(inner, textvariable=self.ping_timeout_var, width=8,
+                 bg=BG_CARD, fg=TEXT, font=F_MONO_SM, relief='flat',
+                 insertbackground=TEXT,
+                 highlightbackground=BORDER, highlightthickness=1
+                 ).pack(anchor='w', padx=14, pady=(4, 0))
 
-        # Update Settings
-        update_frame = ttk.LabelFrame(main_frame, text="Update Settings", padding="10")
-        update_frame.pack(fill=tk.X, pady=(0, 10))
+        # ── UPDATE ────────────────────────────────────────────────────────
+        self._section(inner, "UPDATE INTERVALS")
 
-        ttk.Label(update_frame, text="Ping Refresh Interval (seconds):").pack(anchor=tk.W)
-        self.refresh_var = tk.StringVar(value=str(self.config['refresh_interval']))
-        refresh_scale = ttk.Scale(update_frame, from_=1, to=60, variable=self.refresh_var,
-                                  orient=tk.HORIZONTAL, length=200)
-        refresh_scale.pack(anchor=tk.W, pady=(5, 0))
-        refresh_label = ttk.Label(update_frame, textvariable=self.refresh_var)
-        refresh_label.pack(anchor=tk.W)
+        self._label(inner, "Ping refresh (seconds):").pack(anchor='w', padx=14)
+        self.refresh_var = tk.IntVar(value=int(self.config['refresh_interval']))
+        refresh_val_lbl = tk.Label(inner, text="", fg=ACCENT, bg=BG, font=F_MONO_SM)
+        refresh_val_lbl.pack(anchor='w', padx=14)
 
-        ttk.Separator(update_frame, orient='horizontal').pack(fill=tk.X, pady=8)
+        def on_refresh(v):
+            refresh_val_lbl.config(text=f"{int(float(v))} sec")
+        self._slider(inner, 1, 60, self.refresh_var, on_refresh).pack(
+            anchor='w', padx=14, pady=(2, 0))
+        on_refresh(self.refresh_var.get())
 
-        ttk.Label(update_frame, text="Auto Speed Test Interval (minutes):").pack(anchor=tk.W)
+        self._label(inner, "Auto speed test (minutes):").pack(
+            anchor='w', padx=14, pady=(10, 0))
         self.speed_interval_var = tk.IntVar(
             value=self.config.get('speed_test_interval', 60))
-        speed_scale = ttk.Scale(update_frame, from_=15, to=120,
-                                variable=self.speed_interval_var,
-                                orient=tk.HORIZONTAL, length=200)
-        speed_scale.pack(anchor=tk.W, pady=(5, 0))
+        speed_val_lbl = tk.Label(inner, text="", fg=ACCENT, bg=BG, font=F_MONO_SM)
+        speed_val_lbl.pack(anchor='w', padx=14)
 
-        self.speed_interval_label = ttk.Label(update_frame, text="")
-        self.speed_interval_label.pack(anchor=tk.W)
+        def on_speed(v):
+            mins = int(float(v))
+            speed_val_lbl.config(text=f"{mins} min  (~{mins * 6} MB/day)")
+        self._slider(inner, 15, 120, self.speed_interval_var, on_speed).pack(
+            anchor='w', padx=14, pady=(2, 0))
+        on_speed(self.speed_interval_var.get())
 
-        def update_speed_label(*args):
-            v = int(self.speed_interval_var.get())
-            self.speed_interval_label.config(text=f"Every {v} min  (~{v * 6:.0f} MB/day)")
+        # ── APPEARANCE ────────────────────────────────────────────────────
+        self._section(inner, "APPEARANCE")
 
-        self.speed_interval_var.trace('w', update_speed_label)
-        update_speed_label()
-
-        # Appearance Settings
-        appear_frame = ttk.LabelFrame(main_frame, text="Appearance", padding="10")
-        appear_frame.pack(fill=tk.X, pady=(0, 10))
-
-        ttk.Label(appear_frame, text="Window Opacity:").pack(anchor=tk.W)
+        self._label(inner, "Window opacity:").pack(anchor='w', padx=14)
         self.opacity_var = tk.DoubleVar(value=self.config['opacity'])
-        opacity_scale = ttk.Scale(appear_frame, from_=0.0, to=1.0, variable=self.opacity_var,
-                                  orient=tk.HORIZONTAL, length=200)
-        opacity_scale.pack(anchor=tk.W, pady=(5, 0))
+        opacity_val_lbl = tk.Label(inner, text="", fg=ACCENT, bg=BG, font=F_MONO_SM)
+        opacity_val_lbl.pack(anchor='w', padx=14)
 
-        opacity_label = ttk.Label(appear_frame, text="")
-        opacity_label.pack(anchor=tk.W)
+        def on_opacity(v):
+            val = round(float(v), 2)
+            opacity_val_lbl.config(text=f"{val:.0%}")
+            # Live preview on the main window
+            try:
+                self.parent.attributes('-alpha', max(0.1, val))
+            except Exception:
+                pass
 
-        def update_opacity_label(*args):
-            opacity_label.config(text=f"{self.opacity_var.get():.1f}")
+        self._slider(inner, 0.1, 1.0, self.opacity_var, on_opacity).pack(
+            anchor='w', padx=14, pady=(2, 0))
+        on_opacity(self.opacity_var.get())
 
-        self.opacity_var.trace('w', update_opacity_label)
-        update_opacity_label()
+        # ── VIEW ──────────────────────────────────────────────────────────
+        self._section(inner, "DEFAULT VIEW")
 
-        # Theme selection
-        ttk.Label(appear_frame, text="Theme:").pack(anchor=tk.W, pady=(10, 0))
-        self.theme_var = tk.StringVar(value=self.config['theme'])
-        theme_frame = ttk.Frame(appear_frame)
-        theme_frame.pack(anchor=tk.W, pady=(5, 0))
-        ttk.Radiobutton(theme_frame, text="Light", variable=self.theme_var,
-                        value="light").pack(side=tk.LEFT)
-        ttk.Radiobutton(theme_frame, text="Dark", variable=self.theme_var,
-                        value="dark").pack(side=tk.LEFT, padx=(10, 0))
-
-        # View Mode Settings
-        view_frame = ttk.LabelFrame(main_frame, text="View Settings", padding="10")
-        view_frame.pack(fill=tk.X, pady=(0, 10))
-
-        ttk.Label(view_frame, text="Default View Mode:").pack(anchor=tk.W)
         self.view_mode_var = tk.StringVar(value=self.config['view_mode'])
-        view_mode_frame = ttk.Frame(view_frame)
-        view_mode_frame.pack(anchor=tk.W, pady=(5, 0))
+        view_row = tk.Frame(inner, bg=BG)
+        view_row.pack(anchor='w', padx=14, pady=(4, 0))
+        for mode in ('minimal', 'compact', 'detailed'):
+            tk.Radiobutton(view_row, text=mode.title(),
+                           variable=self.view_mode_var, value=mode,
+                           bg=BG, fg=TEXT_DIM, selectcolor=BG_CARD,
+                           activebackground=BG, activeforeground=TEXT,
+                           font=F_UI_SM).pack(side=tk.LEFT, padx=(0, 12))
 
-        ttk.Radiobutton(view_mode_frame, text="Minimal", variable=self.view_mode_var,
-                        value="minimal").pack(side=tk.LEFT)
-        ttk.Radiobutton(view_mode_frame, text="Compact", variable=self.view_mode_var,
-                        value="compact").pack(side=tk.LEFT, padx=(10, 0))
-        ttk.Radiobutton(view_mode_frame, text="Detailed", variable=self.view_mode_var,
-                        value="detailed").pack(side=tk.LEFT, padx=(10, 0))
-
-        # Startup Settings
-        startup_frame = ttk.LabelFrame(main_frame, text="Startup", padding="10")
-        startup_frame.pack(fill=tk.X, pady=(0, 10))
+        # ── STARTUP ───────────────────────────────────────────────────────
+        self._section(inner, "STARTUP")
 
         self.autostart_var = tk.BooleanVar(value=self.config['auto_start'])
-        ttk.Checkbutton(startup_frame, text="Start with Windows",
-                        variable=self.autostart_var).pack(anchor=tk.W)
-
-        # Buttons
-        button_frame = ttk.Frame(main_frame)
-        button_frame.pack(fill=tk.X, pady=(10, 0))
-
-        ttk.Button(button_frame, text="OK", command=self.ok_clicked).pack(side=tk.RIGHT)
-        ttk.Button(button_frame, text="Cancel", command=self.cancel_clicked).pack(side=tk.RIGHT, padx=(0, 10))
-        ttk.Button(button_frame, text="Reset to Defaults", command=self.reset_defaults).pack(side=tk.LEFT)
+        tk.Checkbutton(inner, text="Start with Windows",
+                       variable=self.autostart_var,
+                       bg=BG, fg=TEXT_DIM, selectcolor=BG_CARD,
+                       activebackground=BG, activeforeground=TEXT,
+                       font=F_UI_SM).pack(anchor='w', padx=14, pady=(4, 12))
 
     def ok_clicked(self):
         """Handle OK button click"""
         try:
-            # Validate and save settings
-            self.config['ping_targets'] = [target.strip() for target in
-                                           self.ping_targets_text.get('1.0', tk.END).strip().split('\n')
-                                           if target.strip()]
-
-            if not self.config['ping_targets']:
-                self.config['ping_targets'] = ['8.8.8.8', '1.1.1.1']
-
+            targets = [t.strip() for t in
+                       self.ping_targets_text.get('1.0', tk.END).strip().split('\n')
+                       if t.strip()]
+            self.config['ping_targets'] = targets or ['8.8.8.8', '1.1.1.1']
             self.config['ping_timeout'] = max(1, int(float(self.ping_timeout_var.get())))
-            self.config['refresh_interval'] = max(1, int(float(self.refresh_var.get())))
+            self.config['refresh_interval'] = max(1, int(self.refresh_var.get()))
             self.config['speed_test_interval'] = max(15, min(120, int(self.speed_interval_var.get())))
-            self.config['opacity'] = max(0.0, min(1.0, self.opacity_var.get()))
-            self.config['theme'] = self.theme_var.get()
+            self.config['opacity'] = round(max(0.1, min(1.0, float(self.opacity_var.get()))), 2)
             self.config['auto_start'] = self.autostart_var.get()
             self.config['view_mode'] = self.view_mode_var.get()
 
@@ -1350,10 +1404,9 @@ class ConfigDialog:
         self.ping_targets_text.delete('1.0', tk.END)
         self.ping_targets_text.insert(tk.END, '\n'.join(defaults['ping_targets']))
         self.ping_timeout_var.set(str(defaults['ping_timeout']))
-        self.refresh_var.set(str(defaults['refresh_interval']))
+        self.refresh_var.set(defaults['refresh_interval'])
         self.speed_interval_var.set(defaults['speed_test_interval'])
         self.opacity_var.set(defaults['opacity'])
-        self.theme_var.set(defaults['theme'])
         self.autostart_var.set(defaults['auto_start'])
         self.view_mode_var.set(defaults['view_mode'])
 
