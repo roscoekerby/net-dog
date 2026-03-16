@@ -16,6 +16,7 @@ import os
 from datetime import datetime, timedelta
 import queue
 import sys
+import statistics
 
 # Hide console window on Windows when running as EXE
 if platform.system() == 'Windows' and getattr(sys, 'frozen', False):
@@ -154,6 +155,14 @@ class NetworkDiagnostics:
         self.drag_start_x = 0
         self.drag_start_y = 0
 
+        # Caches
+        self._netsh_cache = None
+        self._netsh_cache_time = 0
+        self._packet_loss_pct = 0
+
+        # Speed test state
+        self._speed_testing = False
+
     def setup_ui(self):
         """Create the user interface"""
         # Main frame
@@ -202,6 +211,9 @@ class NetworkDiagnostics:
                    command=self.manual_refresh).pack(side=tk.LEFT)
         ttk.Button(self.controls_frame, text="Config",
                    command=self.show_config).pack(side=tk.LEFT, padx=(5, 0))
+        self.speedtest_btn = ttk.Button(self.controls_frame, text="Speed Test",
+                                        command=self.run_speed_test)
+        self.speedtest_btn.pack(side=tk.LEFT, padx=(5, 0))
         ttk.Button(self.controls_frame, text="Exit",
                    command=self.on_closing).pack(side=tk.RIGHT)
 
@@ -268,9 +280,20 @@ class NetworkDiagnostics:
         self.ping_label = ttk.Label(metrics_frame, textvariable=self.ping_latency)
         self.ping_label.grid(row=0, column=1, sticky=tk.W)
 
-        ttk.Label(metrics_frame, text="Signal:").grid(row=1, column=0, sticky=tk.W)
+        ttk.Label(metrics_frame, text="Packet Loss:").grid(row=1, column=0, sticky=tk.W)
+        self.packet_loss_label_compact = ttk.Label(metrics_frame, textvariable=self.packet_loss)
+        self.packet_loss_label_compact.grid(row=1, column=1, sticky=tk.W)
+
+        ttk.Label(metrics_frame, text="Signal:").grid(row=2, column=0, sticky=tk.W)
         self.signal_label = ttk.Label(metrics_frame, textvariable=self.signal_strength)
-        self.signal_label.grid(row=1, column=1, sticky=tk.W)
+        self.signal_label.grid(row=2, column=1, sticky=tk.W)
+
+        # Speed test result row
+        ttk.Label(metrics_frame, text="Download:").grid(row=3, column=0, sticky=tk.W)
+        ttk.Label(metrics_frame, textvariable=self.download_speed).grid(row=3, column=1, sticky=tk.W)
+
+        ttk.Label(metrics_frame, text="Upload:").grid(row=4, column=0, sticky=tk.W)
+        ttk.Label(metrics_frame, textvariable=self.upload_speed).grid(row=4, column=1, sticky=tk.W)
 
     def create_detailed_view(self):
         """Create the detailed view with all metrics"""
@@ -323,6 +346,7 @@ class NetworkDiagnostics:
         """Create right-click context menu"""
         self.context_menu = tk.Menu(self.root, tearoff=0)
         self.context_menu.add_command(label="Refresh Now", command=self.manual_refresh)
+        self.context_menu.add_command(label="Speed Test", command=self.run_speed_test)
         self.context_menu.add_command(label="Reset Position", command=self.reset_position)
         self.context_menu.add_separator()
         self.context_menu.add_command(label="Minimal View", command=lambda: self.set_view_mode("minimal"))
@@ -458,6 +482,17 @@ class NetworkDiagnostics:
         # Start UI update loop
         self.root.after(100, self.update_ui)
 
+        # Start watchdog to restart monitoring thread if it dies
+        self.root.after(10000, self._watchdog)
+
+    def _watchdog(self):
+        """Restart monitoring thread if it has died unexpectedly"""
+        if self.is_monitoring and (self.monitoring_thread is None or not self.monitoring_thread.is_alive()):
+            self.monitoring_thread = threading.Thread(target=self.monitoring_loop, daemon=True)
+            self.monitoring_thread.start()
+        if self.is_monitoring:
+            self.root.after(10000, self._watchdog)
+
     def monitoring_loop(self):
         """Main monitoring loop running in background thread"""
         while self.is_monitoring:
@@ -547,37 +582,51 @@ class NetworkDiagnostics:
 
         return info
 
-    def get_wifi_ssid(self):
-        """Get current WiFi SSID with hidden console"""
+    def _get_netsh_data(self):
+        """Return cached netsh wlan output, refreshing every 10 seconds."""
+        now = time.time()
+        if self._netsh_cache is not None and now - self._netsh_cache_time < 10:
+            return self._netsh_cache
         try:
             if platform.system() == 'Windows':
-                # Use CREATE_NO_WINDOW flag to prevent console popup
                 startupinfo = subprocess.STARTUPINFO()
                 startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
                 startupinfo.wShowWindow = subprocess.SW_HIDE
-
-                result = subprocess.run(['netsh', 'wlan', 'show', 'interfaces'],
-                                       capture_output=True, text=True, timeout=5,
-                                       startupinfo=startupinfo,
-                                       creationflags=subprocess.CREATE_NO_WINDOW)
+                result = subprocess.run(
+                    ['netsh', 'wlan', 'show', 'interfaces'],
+                    capture_output=True, text=True, timeout=5,
+                    startupinfo=startupinfo,
+                    creationflags=subprocess.CREATE_NO_WINDOW
+                )
                 if result.returncode == 0:
-                    for line in result.stdout.split('\n'):
-                        if 'SSID' in line and 'BSSID' not in line:
-                            return line.split(':', 1)[1].strip()
+                    self._netsh_cache = result.stdout
+                    self._netsh_cache_time = now
+                    return self._netsh_cache
+        except Exception:
+            pass
+        return self._netsh_cache or ""
+
+    def get_wifi_ssid(self):
+        """Get current WiFi SSID using cached netsh data"""
+        try:
+            output = self._get_netsh_data()
+            for line in output.split('\n'):
+                if 'SSID' in line and 'BSSID' not in line:
+                    return line.split(':', 1)[1].strip()
             return "WiFi Network"
         except Exception:
             return "WiFi Network"
 
     def get_ping_latency(self):
-        """Get ping latency to configured targets with hidden console"""
-        try:
-            total_time = 0
-            successful_pings = 0
+        """Ping each target 3x, return median latency. Tracks packet loss."""
+        ping_times = []
+        total_attempts = 0
 
-            for target in self.config['ping_targets']:
+        for target in self.config['ping_targets']:
+            for _ in range(3):
+                total_attempts += 1
                 try:
                     if platform.system() == 'Windows':
-                        # Critical fix: Hide console window for subprocess calls
                         startupinfo = subprocess.STARTUPINFO()
                         startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
                         startupinfo.wShowWindow = subprocess.SW_HIDE
@@ -588,74 +637,47 @@ class NetworkDiagnostics:
                             startupinfo=startupinfo,
                             creationflags=subprocess.CREATE_NO_WINDOW
                         )
-
                         if result.returncode == 0:
-                            # Parse Windows ping output
                             for line in result.stdout.split('\n'):
                                 if 'time=' in line.lower():
                                     time_part = line.split('time=')[1].split('ms')[0]
-                                    if 'ms' in line:
-                                        ping_time = float(time_part)
-                                        total_time += ping_time
-                                        successful_pings += 1
+                                    ping_times.append(float(time_part))
                                     break
                     else:
-                        # Linux/Mac ping - also hide output
                         result = subprocess.run(
                             ['ping', '-c', '1', '-W', str(self.config['ping_timeout']), target],
-                            capture_output=True, text=True, timeout=self.config['ping_timeout'] + 1,
-                            stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL
+                            capture_output=True, text=True, timeout=self.config['ping_timeout'] + 1
                         )
-
                         if result.returncode == 0:
-                            # Re-run to get output for parsing (minimal impact)
-                            result = subprocess.run(
-                                ['ping', '-c', '1', '-W', str(self.config['ping_timeout']), target],
-                                capture_output=True, text=True, timeout=self.config['ping_timeout'] + 1
-                            )
                             for line in result.stdout.split('\n'):
                                 if 'time=' in line:
-                                    time_part = line.split('time=')[1].split(' ')[0]
-                                    ping_time = float(time_part)
-                                    total_time += ping_time
-                                    successful_pings += 1
+                                    ping_times.append(float(line.split('time=')[1].split(' ')[0]))
                                     break
+                except Exception:
+                    pass
 
-                except Exception as e:
-                    print(f"Ping to {target} failed: {e}")
-                    continue
+        # Update packet loss
+        if total_attempts > 0:
+            lost = total_attempts - len(ping_times)
+            self._packet_loss_pct = round((lost / total_attempts) * 100)
+        else:
+            self._packet_loss_pct = 0
 
-            if successful_pings > 0:
-                return round(total_time / successful_pings, 1)
-            else:
-                return None
-
-        except Exception as e:
-            print(f"Ping error: {e}")
-            return None
+        if ping_times:
+            return round(statistics.median(ping_times), 1)
+        return None
 
     def get_signal_strength(self):
-        """Get WiFi signal strength with hidden console"""
+        """Get WiFi signal strength using cached netsh data"""
         try:
-            if platform.system() == 'Windows':
-                # Hide console window for subprocess calls
-                startupinfo = subprocess.STARTUPINFO()
-                startupinfo.dwFlags |= subprocess.STARTF_USESHOWWINDOW
-                startupinfo.wShowWindow = subprocess.SW_HIDE
-
-                result = subprocess.run(['netsh', 'wlan', 'show', 'interfaces'],
-                                       capture_output=True, text=True, timeout=5,
-                                       startupinfo=startupinfo,
-                                       creationflags=subprocess.CREATE_NO_WINDOW)
-                if result.returncode == 0:
-                    for line in result.stdout.split('\n'):
-                        if 'Signal' in line:
-                            signal = line.split(':')[1].strip().replace('%', '')
-                            # Convert percentage to approximate dBm
-                            signal_pct = int(signal)
-                            # Rough conversion: 100% = -30dBm, 0% = -100dBm
-                            signal_dbm = -100 + (signal_pct * 0.7)
-                            return round(signal_dbm)
+            output = self._get_netsh_data()
+            for line in output.split('\n'):
+                if 'Signal' in line:
+                    signal = line.split(':')[1].strip().replace('%', '')
+                    signal_pct = int(signal)
+                    # Rough conversion: 100% = -30dBm, 0% = -100dBm
+                    signal_dbm = -100 + (signal_pct * 0.7)
+                    return round(signal_dbm)
             return None
         except Exception:
             return None
@@ -705,6 +727,12 @@ class NetworkDiagnostics:
             self.local_ip.set(data['local_ip'])
         if 'public_ip' in data:
             self.public_ip.set(data['public_ip'])
+
+        # Update packet loss
+        loss = self._packet_loss_pct
+        self.packet_loss.set(f"{loss} %")
+        if hasattr(self, 'packet_loss_label_compact'):
+            self.packet_loss_label_compact.config(foreground='red' if loss > 0 else 'green')
 
         # Update ping with color coding
         if 'ping' in data and data['ping'] is not None:
@@ -882,6 +910,49 @@ class NetworkDiagnostics:
         """Worker for manual refresh"""
         data = self.collect_network_data()
         self.data_queue.put(data)
+
+    def run_speed_test(self):
+        """Start a speed test in a background thread"""
+        if self._speed_testing:
+            return
+        self._speed_testing = True
+        self.download_speed.set("Testing...")
+        self.upload_speed.set("Testing...")
+        if hasattr(self, 'speedtest_btn'):
+            self.speedtest_btn.config(state='disabled')
+        threading.Thread(target=self._speed_test_worker, daemon=True).start()
+
+    def _speed_test_worker(self):
+        """Download and upload speed test using timed HTTP transfers"""
+        try:
+            # --- Download test: fetch 5MB from Cloudflare speed test ---
+            dl_url = "https://speed.cloudflare.com/__down?bytes=5000000"
+            start = time.time()
+            resp = requests.get(dl_url, timeout=30, stream=True)
+            downloaded = 0
+            for chunk in resp.iter_content(chunk_size=65536):
+                downloaded += len(chunk)
+            elapsed = time.time() - start
+            dl_mbps = round((downloaded * 8) / (elapsed * 1_000_000), 1) if elapsed > 0 else 0
+
+            # --- Upload test: POST 1MB to Cloudflare speed test ---
+            ul_url = "https://speed.cloudflare.com/__up"
+            payload = b'0' * 1_000_000
+            start = time.time()
+            requests.post(ul_url, data=payload, timeout=30)
+            elapsed = time.time() - start
+            ul_mbps = round((len(payload) * 8) / (elapsed * 1_000_000), 1) if elapsed > 0 else 0
+
+            self.root.after(0, lambda: self.download_speed.set(f"{dl_mbps} Mbps"))
+            self.root.after(0, lambda: self.upload_speed.set(f"{ul_mbps} Mbps"))
+
+        except Exception as e:
+            self.root.after(0, lambda: self.download_speed.set("Failed"))
+            self.root.after(0, lambda: self.upload_speed.set("Failed"))
+        finally:
+            self._speed_testing = False
+            if hasattr(self, 'speedtest_btn'):
+                self.root.after(0, lambda: self.speedtest_btn.config(state='normal'))
 
     def show_config(self):
         """Show configuration dialog"""
