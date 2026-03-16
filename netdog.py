@@ -244,11 +244,27 @@ class NetworkDiagnostics:
         self.minimal_dot = self.minimal_dot_canvas.create_oval(2, 2, 10, 10,
                                                                fill='gray', outline='white', width=1)
 
-        # Ping text (middle)
+        # Ping text
         self.minimal_ping_label = tk.Label(content_frame, text="-- ms",
                                            fg='white', bg='black',
                                            font=('Arial', 11, 'bold'))
         self.minimal_ping_label.pack(side=tk.LEFT)
+
+        # Separator
+        tk.Label(content_frame, text="|", fg='#555555', bg='black',
+                 font=('Arial', 11)).pack(side=tk.LEFT, padx=(6, 6))
+
+        # Download speed
+        self.minimal_dl_label = tk.Label(content_frame, text="--↓",
+                                         fg='#00ccff', bg='black',
+                                         font=('Arial', 10))
+        self.minimal_dl_label.pack(side=tk.LEFT)
+
+        # Upload speed
+        self.minimal_ul_label = tk.Label(content_frame, text=" --↑",
+                                         fg='#aaffaa', bg='black',
+                                         font=('Arial', 10))
+        self.minimal_ul_label.pack(side=tk.LEFT)
 
         # Triangle button to expand/cycle view (right side)
         self.minimal_expand_btn = tk.Label(
@@ -922,6 +938,13 @@ class NetworkDiagnostics:
         data = self.collect_network_data()
         self.data_queue.put(data)
 
+    def _update_minimal_speed(self, dl_text, ul_text):
+        """Update download/upload labels in minimal view"""
+        if hasattr(self, 'minimal_dl_label'):
+            self.minimal_dl_label.config(text=dl_text)
+        if hasattr(self, 'minimal_ul_label'):
+            self.minimal_ul_label.config(text=ul_text)
+
     def _auto_speed_test(self):
         """Scheduled auto speed test every 15 minutes"""
         self.run_speed_test()
@@ -963,11 +986,13 @@ class NetworkDiagnostics:
             self.root.after(0, lambda: self.download_speed.set(f"{dl_mbps} Mbps"))
             self.root.after(0, lambda: self.upload_speed.set(f"{ul_mbps} Mbps"))
             self.root.after(0, lambda: self.speedtest_time_var.set(f"Speed test: last run {stamp}"))
+            self.root.after(0, lambda: self._update_minimal_speed(f"{dl_mbps}↓", f" {ul_mbps}↑"))
 
         except Exception as e:
             self.root.after(0, lambda: self.download_speed.set("Failed"))
             self.root.after(0, lambda: self.upload_speed.set("Failed"))
             self.root.after(0, lambda: self.speedtest_time_var.set("Speed test: failed"))
+            self.root.after(0, lambda: self._update_minimal_speed("Err↓", " Err↑"))
         finally:
             self._speed_testing = False
             if hasattr(self, 'speedtest_btn'):
