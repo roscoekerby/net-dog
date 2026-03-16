@@ -481,7 +481,9 @@ class NetworkDiagnostics:
             self.title_frame.pack(fill=tk.X, side=tk.TOP)
             self.controls_frame.pack(fill=tk.X, side=tk.BOTTOM)
             self.compact_frame.pack(fill=tk.BOTH, expand=True, pady=(4, 0))
-            self.root.geometry("300x310")
+            self.root.update_idletasks()
+            h = self.root.winfo_reqheight()
+            self.root.geometry(f"300x{h}")
             self.toggle_btn.config(text="▾")
 
         else:  # detailed
@@ -489,7 +491,9 @@ class NetworkDiagnostics:
             self.title_frame.pack(fill=tk.X, side=tk.TOP)
             self.controls_frame.pack(fill=tk.X, side=tk.BOTTOM)
             self.detailed_frame.pack(fill=tk.BOTH, expand=True, pady=(4, 0))
-            self.root.geometry("300x530")
+            self.root.update_idletasks()
+            h = self.root.winfo_reqheight()
+            self.root.geometry(f"300x{h}")
             self.toggle_btn.config(text="▴")
 
         self.config['view_mode'] = mode
