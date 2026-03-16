@@ -25,6 +25,30 @@ if platform.system() == 'Windows' and getattr(sys, 'frozen', False):
     import ctypes
     ctypes.windll.user32.ShowWindow(ctypes.windll.kernel32.GetConsoleWindow(), 0)
 
+# ── Design tokens ─────────────────────────────────────────────────────────────
+BG        = '#0d1117'
+BG_PANEL  = '#161b22'
+BG_CARD   = '#1c2128'
+BORDER    = '#30363d'
+TEXT      = '#e6edf3'
+TEXT_DIM  = '#8b949e'
+TEXT_MUTED= '#484f58'
+ACCENT    = '#00d4ff'
+GOOD      = '#3fb950'
+WARN      = '#d29922'
+BAD       = '#f85149'
+DL_CLR    = '#00d4ff'
+UL_CLR    = '#7ee787'
+
+F_MONO    = ('Consolas', 10)
+F_MONO_LG = ('Consolas', 12, 'bold')
+F_MONO_SM = ('Consolas', 9)
+F_UI      = ('Segoe UI', 9)
+F_UI_SM   = ('Segoe UI', 8)
+F_UI_BOLD = ('Segoe UI', 9, 'bold')
+F_LABEL   = ('Segoe UI', 7)
+F_TITLE   = ('Segoe UI', 8, 'bold')
+
 
 class NetworkDiagnostics:
     def __init__(self):
@@ -37,8 +61,9 @@ class NetworkDiagnostics:
 
     def setup_window(self):
         """Configure the main window"""
-        self.root.title("NetDog Network Diagnostics")
+        self.root.title("NetDog")
         self.root.geometry("300x400")
+        self.root.configure(bg=BG)
         self.root.attributes('-topmost', True)
         self.root.attributes('-alpha', 0.9)
 
@@ -166,205 +191,225 @@ class NetworkDiagnostics:
         self._speed_testing = False
         self.speedtest_time_var = tk.StringVar(value="Speed test: never run")
 
+    def _mk_btn(self, parent, text, command):
+        """Create a flat dark button"""
+        b = tk.Button(parent, text=text, command=command,
+                      fg=TEXT_DIM, bg=BG_PANEL, font=F_UI_SM,
+                      relief='flat', bd=0, cursor='hand2',
+                      activebackground=BORDER, activeforeground=TEXT,
+                      padx=10, pady=5)
+        b.bind('<Enter>', lambda e: b.config(fg=TEXT, bg=BG_CARD))
+        b.bind('<Leave>', lambda e: b.config(fg=TEXT_DIM, bg=BG_PANEL))
+        return b
+
     def setup_ui(self):
         """Create the user interface"""
-        # Main frame
-        self.main_frame = ttk.Frame(self.root, padding="10")
+        self.main_frame = tk.Frame(self.root, bg=BG)
         self.main_frame.pack(fill=tk.BOTH, expand=True)
 
-        # Title bar (hidden in minimal mode)
-        self.title_frame = ttk.Frame(self.main_frame)
+        # ── Header bar (hidden in minimal mode) ────────────────────────────
+        self.title_frame = tk.Frame(self.main_frame, bg=BG_PANEL)
 
-        title_label = ttk.Label(self.title_frame, text="NetDog Network Diagnostics",
-                                font=('Arial', 10, 'bold'))
-        title_label.pack(side=tk.LEFT)
+        # Accent top stripe
+        tk.Frame(self.title_frame, bg=ACCENT, height=2).pack(fill=tk.X)
 
-        # View toggle button
-        self.toggle_btn = ttk.Button(self.title_frame, text="●", width=3,
-                                     command=self.cycle_view_mode)
+        header_inner = tk.Frame(self.title_frame, bg=BG_PANEL)
+        header_inner.pack(fill=tk.X, padx=10, pady=(5, 6))
+
+        # Status dot + status text
+        self.status_canvas = tk.Canvas(header_inner, width=10, height=10,
+                                       bg=BG_PANEL, highlightthickness=0)
+        self.status_canvas.pack(side=tk.LEFT, pady=2)
+        self.status_indicator = self.status_canvas.create_oval(1, 1, 9, 9,
+                                                               fill=TEXT_MUTED, outline='')
+        self.status_label = tk.Label(header_inner, text="INITIALIZING",
+                                     fg=TEXT_DIM, bg=BG_PANEL, font=F_LABEL)
+        self.status_label.pack(side=tk.LEFT, padx=(6, 0))
+
+        # App name (center)
+        tk.Label(header_inner, text="NETDOG", fg=ACCENT, bg=BG_PANEL,
+                 font=F_TITLE).pack(side=tk.LEFT, expand=True)
+
+        # Toggle button
+        self.toggle_btn = tk.Label(header_inner, text="▾", fg=TEXT_DIM,
+                                   bg=BG_PANEL, font=('Segoe UI', 13),
+                                   cursor='hand2', padx=4)
         self.toggle_btn.pack(side=tk.RIGHT)
+        self.toggle_btn.bind('<Button-1>', lambda e: self.cycle_view_mode())
+        self.toggle_btn.bind('<Enter>', lambda e: self.toggle_btn.config(fg=ACCENT))
+        self.toggle_btn.bind('<Leave>', lambda e: self.toggle_btn.config(fg=TEXT_DIM))
 
-        # Status indicator (hidden in minimal mode)
-        self.status_frame = ttk.Frame(self.main_frame)
+        # Kept as empty frame for layout compat (status_frame is merged into title_frame)
+        self.status_frame = tk.Frame(self.main_frame, bg=BG, height=0)
 
-        self.status_canvas = tk.Canvas(self.status_frame, width=20, height=20)
-        self.status_canvas.pack(side=tk.LEFT)
-        self.status_indicator = self.status_canvas.create_oval(2, 2, 18, 18,
-                                                               fill='gray', outline='')
-
-        self.status_label = ttk.Label(self.status_frame, text="Initializing...")
-        self.status_label.pack(side=tk.LEFT, padx=(10, 0))
-
-        # Minimal view frame (League of Legends style)
-        self.minimal_frame = ttk.Frame(self.main_frame)
+        # ── View frames ────────────────────────────────────────────────────
+        self.minimal_frame = tk.Frame(self.main_frame, bg='black')
         self.create_minimal_view()
 
-        # Compact view frame
-        self.compact_frame = ttk.Frame(self.main_frame)
+        self.compact_frame = tk.Frame(self.main_frame, bg=BG)
         self.create_compact_view()
 
-        # Detailed view frame
-        self.detailed_frame = ttk.Frame(self.main_frame)
+        self.detailed_frame = tk.Frame(self.main_frame, bg=BG)
         self.create_detailed_view()
 
-        # Control buttons frame (hidden in minimal mode)
-        self.controls_frame = ttk.Frame(self.main_frame)
+        # ── Controls bar ───────────────────────────────────────────────────
+        self.controls_frame = tk.Frame(self.main_frame, bg=BG_PANEL)
+        tk.Frame(self.controls_frame, bg=BORDER, height=1).pack(fill=tk.X)
 
-        ttk.Button(self.controls_frame, text="Refresh",
-                   command=self.manual_refresh).pack(side=tk.LEFT)
-        ttk.Button(self.controls_frame, text="Config",
-                   command=self.show_config).pack(side=tk.LEFT, padx=(5, 0))
-        self.speedtest_btn = ttk.Button(self.controls_frame, text="Speed Test",
-                                        command=self.run_speed_test)
-        self.speedtest_btn.pack(side=tk.LEFT, padx=(5, 0))
-        ttk.Button(self.controls_frame, text="Exit",
-                   command=self.on_closing).pack(side=tk.RIGHT)
+        btn_row = tk.Frame(self.controls_frame, bg=BG_PANEL)
+        btn_row.pack(fill=tk.X)
 
-        # Set initial view
+        self._mk_btn(btn_row, "Refresh", self.manual_refresh).pack(side=tk.LEFT)
+        self._mk_btn(btn_row, "Config", self.show_config).pack(side=tk.LEFT)
+        self.speedtest_btn = self._mk_btn(btn_row, "Speed Test", self.run_speed_test)
+        self.speedtest_btn.pack(side=tk.LEFT)
+        self._mk_btn(btn_row, "Exit", self.on_closing).pack(side=tk.RIGHT)
+
         self.view_mode.set(self.config.get('view_mode', 'compact'))
         self.update_view_mode()
 
-        # Context menu
         self.create_context_menu()
         self.root.bind('<Button-3>', self.show_context_menu)
 
     def create_minimal_view(self):
-        """Create the minimal League of Legends style view"""
-        self.minimal_container = tk.Frame(self.minimal_frame, bg='black', padx=8, pady=4)
+        """Minimal HUD pill — dot · ping · dl↓ ul↑ · expand"""
+        PILL_BG = '#0a0e14'
+        self.minimal_container = tk.Frame(self.minimal_frame, bg=PILL_BG,
+                                          padx=10, pady=5,
+                                          highlightbackground='#1e2a38',
+                                          highlightthickness=1)
         self.minimal_container.pack()
 
-        # Single frame to hold all elements in one line
-        content_frame = tk.Frame(self.minimal_container, bg='black')
-        content_frame.pack()
+        row = tk.Frame(self.minimal_container, bg=PILL_BG)
+        row.pack()
 
-        # Status dot (left side)
-        self.minimal_dot_canvas = tk.Canvas(content_frame, width=12, height=12,
-                                            bg='black', highlightthickness=0)
-        self.minimal_dot_canvas.pack(side=tk.LEFT, padx=(0, 6))
-        self.minimal_dot = self.minimal_dot_canvas.create_oval(2, 2, 10, 10,
-                                                               fill='gray', outline='white', width=1)
+        # Status dot
+        self.minimal_dot_canvas = tk.Canvas(row, width=10, height=10,
+                                            bg=PILL_BG, highlightthickness=0)
+        self.minimal_dot_canvas.pack(side=tk.LEFT, padx=(0, 8))
+        self.minimal_dot = self.minimal_dot_canvas.create_oval(1, 1, 9, 9,
+                                                               fill=TEXT_MUTED, outline='')
 
-        # Ping text
-        self.minimal_ping_label = tk.Label(content_frame, text="-- ms",
-                                           fg='white', bg='black',
-                                           font=('Arial', 11, 'bold'))
+        # Ping
+        self.minimal_ping_label = tk.Label(row, text="-- ms",
+                                           fg=TEXT, bg=PILL_BG,
+                                           font=F_MONO_LG)
         self.minimal_ping_label.pack(side=tk.LEFT)
 
-        # Separator
-        tk.Label(content_frame, text="|", fg='#555555', bg='black',
-                 font=('Arial', 11)).pack(side=tk.LEFT, padx=(6, 6))
+        # Divider
+        tk.Label(row, text="·", fg='#2a3a4a', bg=PILL_BG,
+                 font=('Segoe UI', 13)).pack(side=tk.LEFT, padx=(8, 8))
 
-        # Download speed
-        self.minimal_dl_label = tk.Label(content_frame, text="--↓",
-                                         fg='#00ccff', bg='black',
-                                         font=('Arial', 10))
+        # Download
+        self.minimal_dl_label = tk.Label(row, text="--↓",
+                                         fg=DL_CLR, bg=PILL_BG,
+                                         font=F_MONO_SM)
         self.minimal_dl_label.pack(side=tk.LEFT)
 
-        # Upload speed
-        self.minimal_ul_label = tk.Label(content_frame, text=" --↑",
-                                         fg='#aaffaa', bg='black',
-                                         font=('Arial', 10))
+        # Upload
+        self.minimal_ul_label = tk.Label(row, text="  --↑",
+                                         fg=UL_CLR, bg=PILL_BG,
+                                         font=F_MONO_SM)
         self.minimal_ul_label.pack(side=tk.LEFT)
 
-        # Triangle button to expand/cycle view (right side)
-        self.minimal_expand_btn = tk.Label(
-            content_frame,
-            text="▸",  # Triangle pointing right
-            font=("Arial", 14, "bold"),
-            fg="white",
-            bg="black",
-            cursor="hand2",
-            padx=6, pady=0
-        )
-        self.minimal_expand_btn.pack(side=tk.LEFT, padx=(4, 0))  # Small gap from ping text
-        self.minimal_expand_btn.bind("<Button-1>", lambda e: self.cycle_view_mode())
+        # Expand chevron
+        self.minimal_expand_btn = tk.Label(row, text="›",
+                                           fg='#2a3a4a', bg=PILL_BG,
+                                           font=('Segoe UI', 15, 'bold'),
+                                           cursor='hand2', padx=6)
+        self.minimal_expand_btn.pack(side=tk.LEFT, padx=(8, 0))
+        self.minimal_expand_btn.bind('<Button-1>', lambda e: self.cycle_view_mode())
+        self.minimal_expand_btn.bind('<Enter>',
+                                     lambda e: self.minimal_expand_btn.config(fg=ACCENT))
+        self.minimal_expand_btn.bind('<Leave>',
+                                     lambda e: self.minimal_expand_btn.config(fg='#2a3a4a'))
+
+    def _section_header(self, parent, text):
+        """Thin section header: colored label + horizontal rule"""
+        f = tk.Frame(parent, bg=BG)
+        f.pack(fill=tk.X, padx=12, pady=(10, 4))
+        tk.Label(f, text=text, fg=ACCENT, bg=BG,
+                 font=('Segoe UI', 7, 'bold')).pack(side=tk.LEFT)
+        tk.Frame(f, bg=BORDER, height=1).pack(side=tk.LEFT, fill=tk.X,
+                                              expand=True, padx=(6, 0), pady=3)
+
+    def _metric_row(self, parent, label_text, var=None, label_ref=None):
+        """Single label + value row, returns value widget"""
+        row = tk.Frame(parent, bg=BG)
+        row.pack(fill=tk.X, padx=14, pady=1)
+        tk.Label(row, text=label_text.upper(), fg=TEXT_MUTED, bg=BG,
+                 font=F_LABEL, width=12, anchor='w').pack(side=tk.LEFT)
+        if var:
+            w = tk.Label(row, textvariable=var, fg=TEXT, bg=BG, font=F_MONO,
+                         anchor='e')
+        else:
+            w = tk.Label(row, text="—", fg=TEXT, bg=BG, font=F_MONO, anchor='e')
+        w.pack(side=tk.RIGHT)
+        return w
 
     def create_compact_view(self):
-        """Create the compact view with essential metrics"""
-        # Connection info
-        conn_frame = ttk.LabelFrame(self.compact_frame, text="Connection", padding="5")
-        conn_frame.pack(fill=tk.X, pady=(0, 5))
+        """Compact dark card view"""
+        self._section_header(self.compact_frame, "CONNECTION")
 
-        ttk.Label(conn_frame, text="Type:").grid(row=0, column=0, sticky=tk.W)
-        ttk.Label(conn_frame, textvariable=self.connection_type).grid(row=0, column=1, sticky=tk.W)
+        conn = tk.Frame(self.compact_frame, bg=BG)
+        conn.pack(fill=tk.X, padx=14, pady=1)
+        tk.Label(conn, text="TYPE", fg=TEXT_MUTED, bg=BG,
+                 font=F_LABEL, width=12, anchor='w').pack(side=tk.LEFT)
+        tk.Label(conn, textvariable=self.connection_type, fg=TEXT, bg=BG,
+                 font=F_MONO, anchor='e').pack(side=tk.RIGHT)
 
-        ttk.Label(conn_frame, text="Network:").grid(row=1, column=0, sticky=tk.W)
-        ttk.Label(conn_frame, textvariable=self.network_name).grid(row=1, column=1, sticky=tk.W)
+        net = tk.Frame(self.compact_frame, bg=BG)
+        net.pack(fill=tk.X, padx=14, pady=1)
+        tk.Label(net, text="NETWORK", fg=TEXT_MUTED, bg=BG,
+                 font=F_LABEL, width=12, anchor='w').pack(side=tk.LEFT)
+        tk.Label(net, textvariable=self.network_name, fg=TEXT, bg=BG,
+                 font=F_MONO, anchor='e').pack(side=tk.RIGHT)
 
-        # Key metrics
-        metrics_frame = ttk.LabelFrame(self.compact_frame, text="Metrics", padding="5")
-        metrics_frame.pack(fill=tk.X, pady=(0, 5))
+        self._section_header(self.compact_frame, "PERFORMANCE")
 
-        ttk.Label(metrics_frame, text="Ping:").grid(row=0, column=0, sticky=tk.W)
-        self.ping_label = ttk.Label(metrics_frame, textvariable=self.ping_latency)
-        self.ping_label.grid(row=0, column=1, sticky=tk.W)
+        self.ping_label = self._metric_row(self.compact_frame, "Ping",
+                                           self.ping_latency)
+        self.packet_loss_label_compact = self._metric_row(self.compact_frame,
+                                                          "Packet Loss",
+                                                          self.packet_loss)
+        self.signal_label = self._metric_row(self.compact_frame, "Signal",
+                                             self.signal_strength)
 
-        ttk.Label(metrics_frame, text="Packet Loss:").grid(row=1, column=0, sticky=tk.W)
-        self.packet_loss_label_compact = ttk.Label(metrics_frame, textvariable=self.packet_loss)
-        self.packet_loss_label_compact.grid(row=1, column=1, sticky=tk.W)
-
-        ttk.Label(metrics_frame, text="Signal:").grid(row=2, column=0, sticky=tk.W)
-        self.signal_label = ttk.Label(metrics_frame, textvariable=self.signal_strength)
-        self.signal_label.grid(row=2, column=1, sticky=tk.W)
-
-        # Speed test result row
-        ttk.Label(metrics_frame, text="Download:").grid(row=3, column=0, sticky=tk.W)
-        ttk.Label(metrics_frame, textvariable=self.download_speed).grid(row=3, column=1, sticky=tk.W)
-
-        ttk.Label(metrics_frame, text="Upload:").grid(row=4, column=0, sticky=tk.W)
-        ttk.Label(metrics_frame, textvariable=self.upload_speed).grid(row=4, column=1, sticky=tk.W)
+        self._section_header(self.compact_frame, "SPEED TEST")
+        self._metric_row(self.compact_frame, "Download", self.download_speed)
+        self._metric_row(self.compact_frame, "Upload", self.upload_speed)
 
     def create_detailed_view(self):
-        """Create the detailed view with all metrics"""
-        # Network Information
-        net_frame = ttk.LabelFrame(self.detailed_frame, text="Network Information", padding="5")
-        net_frame.pack(fill=tk.X, pady=(0, 5))
+        """Detailed dark card view with graph"""
+        self._section_header(self.detailed_frame, "NETWORK")
+        self._metric_row(self.detailed_frame, "Type", self.connection_type)
+        self._metric_row(self.detailed_frame, "Network", self.network_name)
+        self._metric_row(self.detailed_frame, "Local IP", self.local_ip)
+        self._metric_row(self.detailed_frame, "Public IP", self.public_ip)
 
-        info_labels = [
-            ("Type:", self.connection_type),
-            ("Network:", self.network_name),
-            ("Local IP:", self.local_ip),
-            ("Public IP:", self.public_ip)
-        ]
-
-        for i, (label, var) in enumerate(info_labels):
-            ttk.Label(net_frame, text=label).grid(row=i, column=0, sticky=tk.W)
-            ttk.Label(net_frame, textvariable=var).grid(row=i, column=1, sticky=tk.W, padx=(10, 0))
-
-        # Performance Metrics
-        perf_frame = ttk.LabelFrame(self.detailed_frame, text="Performance", padding="5")
-        perf_frame.pack(fill=tk.X, pady=(0, 5))
-
-        perf_labels = [
-            ("Ping:", self.ping_latency),
-            ("Download:", self.download_speed),
-            ("Upload:", self.upload_speed),
-            ("Packet Loss:", self.packet_loss),
-            ("Signal:", self.signal_strength)
-        ]
-
-        for i, (label, var) in enumerate(perf_labels):
-            ttk.Label(perf_frame, text=label).grid(row=i, column=0, sticky=tk.W)
-            label_widget = ttk.Label(perf_frame, textvariable=var)
-            label_widget.grid(row=i, column=1, sticky=tk.W, padx=(10, 0))
-
-            # Store references for color coding
-            if label == "Ping:":
-                self.ping_label_detailed = label_widget
-            elif label == "Signal:":
-                self.signal_label_detailed = label_widget
+        self._section_header(self.detailed_frame, "PERFORMANCE")
+        self.ping_label_detailed = self._metric_row(self.detailed_frame, "Ping",
+                                                    self.ping_latency)
+        self._metric_row(self.detailed_frame, "Download", self.download_speed)
+        self._metric_row(self.detailed_frame, "Upload", self.upload_speed)
+        self._metric_row(self.detailed_frame, "Packet Loss", self.packet_loss)
+        self.signal_label_detailed = self._metric_row(self.detailed_frame, "Signal",
+                                                       self.signal_strength)
 
         # Speed test timestamp
-        self.speedtest_time_var = tk.StringVar(value="Speed test: never run")
-        ttk.Label(perf_frame, textvariable=self.speedtest_time_var, foreground='gray',
-                  font=('Arial', 8)).grid(row=5, column=0, columnspan=2, sticky=tk.W, pady=(4, 0))
+        ts_row = tk.Frame(self.detailed_frame, bg=BG)
+        ts_row.pack(fill=tk.X, padx=14, pady=(4, 0))
+        tk.Label(ts_row, textvariable=self.speedtest_time_var,
+                 fg=TEXT_MUTED, bg=BG, font=F_LABEL).pack(side=tk.LEFT)
 
-        # Mini graph placeholder
-        graph_frame = ttk.LabelFrame(self.detailed_frame, text="Trend (Last Hour)", padding="5")
-        graph_frame.pack(fill=tk.X, pady=(0, 5))
-
-        self.trend_canvas = tk.Canvas(graph_frame, height=60, bg='white')
-        self.trend_canvas.pack(fill=tk.X)
+        # Trend graph
+        self._section_header(self.detailed_frame, "PING TREND")
+        graph_wrap = tk.Frame(self.detailed_frame, bg=BG_CARD,
+                              highlightbackground=BORDER, highlightthickness=1)
+        graph_wrap.pack(fill=tk.X, padx=12, pady=(0, 8))
+        self.trend_canvas = tk.Canvas(graph_wrap, height=56, bg=BG_CARD,
+                                      highlightthickness=0)
+        self.trend_canvas.pack(fill=tk.X, padx=2, pady=2)
 
     def create_context_menu(self):
         """Create right-click context menu"""
@@ -412,7 +457,6 @@ class NetworkDiagnostics:
         """Update the display based on current view mode"""
         mode = self.view_mode.get()
 
-        # Hide all frames first
         self.minimal_frame.pack_forget()
         self.compact_frame.pack_forget()
         self.detailed_frame.pack_forget()
@@ -421,39 +465,29 @@ class NetworkDiagnostics:
         self.controls_frame.pack_forget()
 
         if mode == "minimal":
-            # Minimal mode - just ping, dot, and tiny expand button
             self.minimal_frame.pack(fill=tk.BOTH, expand=True)
             self.root.update_idletasks()
-            self.root.geometry(f"{self.minimal_container.winfo_reqwidth()}x{self.minimal_container.winfo_reqheight()}")
-            self.toggle_btn.config(text="●")
-            self.main_frame.config(padding="0")
-
-            # Remove window decorations for true minimal look
+            w = self.minimal_container.winfo_reqwidth()
+            h = self.minimal_container.winfo_reqheight()
+            self.root.geometry(f"{w}x{h}")
             self.root.overrideredirect(True)
 
         elif mode == "compact":
-            # Compact mode - essential info
-            self.root.overrideredirect(False)  # Restore window decorations
-            self.title_frame.pack(fill=tk.X, pady=(0, 10))
-            self.status_frame.pack(fill=tk.X, pady=(0, 10))
-            self.compact_frame.pack(fill=tk.BOTH, expand=True)
-            self.controls_frame.pack(fill=tk.X, pady=(10, 0))
-            self.root.geometry("300x200")
-            self.toggle_btn.config(text="▼")
-            self.main_frame.config(padding="10")
+            self.root.overrideredirect(False)
+            self.title_frame.pack(fill=tk.X)
+            self.compact_frame.pack(fill=tk.BOTH, expand=True, pady=(4, 0))
+            self.controls_frame.pack(fill=tk.X)
+            self.root.geometry("300x270")
+            self.toggle_btn.config(text="▾")
 
         else:  # detailed
-            # Detailed mode - all information
-            self.root.overrideredirect(False)  # Restore window decorations
-            self.title_frame.pack(fill=tk.X, pady=(0, 10))
-            self.status_frame.pack(fill=tk.X, pady=(0, 10))
-            self.detailed_frame.pack(fill=tk.BOTH, expand=True)
-            self.controls_frame.pack(fill=tk.X, pady=(10, 0))
-            self.root.geometry("300x500")
-            self.toggle_btn.config(text="▲")
-            self.main_frame.config(padding="10")
+            self.root.overrideredirect(False)
+            self.title_frame.pack(fill=tk.X)
+            self.detailed_frame.pack(fill=tk.BOTH, expand=True, pady=(4, 0))
+            self.controls_frame.pack(fill=tk.X)
+            self.root.geometry("300x510")
+            self.toggle_btn.config(text="▴")
 
-        # Save preference
         self.config['view_mode'] = mode
 
     def toggle_view(self):
@@ -759,7 +793,7 @@ class NetworkDiagnostics:
         loss = self._packet_loss_pct
         self.packet_loss.set(f"{loss} %")
         if hasattr(self, 'packet_loss_label_compact'):
-            self.packet_loss_label_compact.config(foreground='red' if loss > 0 else 'green')
+            self.packet_loss_label_compact.config(fg=BAD if loss > 0 else GOOD)
 
         # Update ping with color coding
         if 'ping' in data and data['ping'] is not None:
@@ -768,20 +802,20 @@ class NetworkDiagnostics:
             self.ping_latency.set(ping_text)
 
             # Color coding for ping
-            color = 'green'
-            dot_color = 'lime'
+            color = GOOD
+            dot_color = GOOD
             if ping_val > 100:
-                color = 'red'
-                dot_color = 'red'
+                color = BAD
+                dot_color = BAD
             elif ping_val > 50:
-                color = 'orange'
-                dot_color = 'yellow'
+                color = WARN
+                dot_color = WARN
 
             # Apply color to labels
             if hasattr(self, 'ping_label'):
-                self.ping_label.config(foreground=color)
+                self.ping_label.config(fg=color)
             if hasattr(self, 'ping_label_detailed'):
-                self.ping_label_detailed.config(foreground=color)
+                self.ping_label_detailed.config(fg=color)
 
             # Update minimal view
             if hasattr(self, 'minimal_ping_label'):
@@ -793,9 +827,9 @@ class NetworkDiagnostics:
             ping_text = "Timeout"
             self.ping_latency.set(ping_text)
             if hasattr(self, 'ping_label'):
-                self.ping_label.config(foreground='red')
+                self.ping_label.config(fg=BAD)
             if hasattr(self, 'ping_label_detailed'):
-                self.ping_label_detailed.config(foreground='red')
+                self.ping_label_detailed.config(fg=BAD)
 
             # Update minimal view for timeout
             if hasattr(self, 'minimal_ping_label'):
@@ -809,16 +843,16 @@ class NetworkDiagnostics:
             self.signal_strength.set(f"{signal_val} dBm")
 
             # Color coding for signal strength
-            color = 'green'
+            color = GOOD
             if signal_val < -70:
-                color = 'red'
+                color = BAD
             elif signal_val < -50:
-                color = 'orange'
+                color = WARN
 
             if hasattr(self, 'signal_label'):
-                self.signal_label.config(foreground=color)
+                self.signal_label.config(fg=color)
             if hasattr(self, 'signal_label_detailed'):
-                self.signal_label_detailed.config(foreground=color)
+                self.signal_label_detailed.config(fg=color)
         else:
             if data.get('connection_type') == 'WiFi':
                 self.signal_strength.set("No signal data")
@@ -827,10 +861,11 @@ class NetworkDiagnostics:
 
         # Update status indicator
         overall_status = self.calculate_overall_status(data)
-        status_colors = {'good': 'green', 'fair': 'orange', 'poor': 'red'}
-        self.status_canvas.itemconfig(self.status_indicator,
-                                      fill=status_colors.get(overall_status, 'gray'))
-        self.status_label.config(text=f"Status: {overall_status.title()}")
+        status_colors = {'good': GOOD, 'fair': WARN, 'poor': BAD}
+        dot_color = status_colors.get(overall_status, TEXT_MUTED)
+        self.status_canvas.itemconfig(self.status_indicator, fill=dot_color)
+        self.status_label.config(text=overall_status.upper(),
+                                 fg=dot_color)
 
     def calculate_overall_status(self, data):
         """Calculate overall network status"""
@@ -888,45 +923,57 @@ class NetworkDiagnostics:
         canvas = self.trend_canvas
         canvas.delete("all")
 
-        if len(self.history['ping_values']) < 2:
-            canvas.create_text(canvas.winfo_width() // 2, 30,
-                               text="Collecting data...", fill='gray')
+        width = canvas.winfo_width()
+        height = canvas.winfo_height()
+        if width <= 1:
             return
 
-        # Filter out None values for ping
+        if len(self.history['ping_values']) < 2:
+            canvas.create_text(width // 2, height // 2,
+                               text="collecting data…", fill=TEXT_MUTED,
+                               font=F_LABEL)
+            return
+
         ping_data = [(i, v) for i, v in enumerate(self.history['ping_values'])
                      if v is not None]
-
         if len(ping_data) < 2:
             return
 
-        # Draw ping trend
-        width = canvas.winfo_width()
-        height = canvas.winfo_height()
+        max_ping = max(v for _, v in ping_data)
+        min_ping = min(v for _, v in ping_data)
+        if max_ping == min_ping:
+            max_ping += 1
 
-        if width > 1 and height > 1:
-            # Calculate scales
-            max_ping = max(v for _, v in ping_data)
-            min_ping = min(v for _, v in ping_data)
+        PAD = 18
 
-            if max_ping == min_ping:
-                max_ping += 1
+        # Faint horizontal grid lines
+        for frac in (0.25, 0.5, 0.75):
+            y = PAD + frac * (height - PAD * 2)
+            canvas.create_line(PAD, y, width - 4, y,
+                               fill=BORDER, width=1, dash=(2, 4))
 
-            # Draw trend line
-            points = []
-            for i, (idx, ping_val) in enumerate(ping_data):
-                x = (i / (len(ping_data) - 1)) * (width - 20) + 10
-                y = height - 10 - ((ping_val - min_ping) / (max_ping - min_ping)) * (height - 20)
-                points.extend([x, y])
+        # Filled area under the line
+        area_pts = [PAD, height - 4]
+        for i, (_, v) in enumerate(ping_data):
+            x = PAD + (i / (len(ping_data) - 1)) * (width - PAD - 4)
+            y = (height - PAD) - ((v - min_ping) / (max_ping - min_ping)) * (height - PAD * 2)
+            area_pts.extend([x, y])
+        area_pts.extend([width - 4, height - 4])
+        canvas.create_polygon(area_pts, fill='#00334a', outline='')
 
-            if len(points) >= 4:
-                canvas.create_line(points, fill='blue', width=2)
+        # Trend line
+        pts = []
+        for i, (_, v) in enumerate(ping_data):
+            x = PAD + (i / (len(ping_data) - 1)) * (width - PAD - 4)
+            y = (height - PAD) - ((v - min_ping) / (max_ping - min_ping)) * (height - PAD * 2)
+            pts.extend([x, y])
+        canvas.create_line(pts, fill=ACCENT, width=1, smooth=True)
 
-            # Add labels
-            canvas.create_text(15, height - 5, text=f"{min_ping:.0f}",
-                               fill='gray', font=('Arial', 8))
-            canvas.create_text(15, 15, text=f"{max_ping:.0f}",
-                               fill='gray', font=('Arial', 8))
+        # Y-axis labels
+        canvas.create_text(PAD - 2, height - PAD, text=f"{min_ping:.0f}",
+                           fill=TEXT_MUTED, font=F_LABEL, anchor='e')
+        canvas.create_text(PAD - 2, PAD, text=f"{max_ping:.0f}",
+                           fill=TEXT_MUTED, font=F_LABEL, anchor='e')
 
     def manual_refresh(self):
         """Manually trigger a refresh"""
