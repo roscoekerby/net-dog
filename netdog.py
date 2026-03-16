@@ -57,6 +57,8 @@ class NetworkDiagnostics:
         self.setup_variables()
         self.setup_ui()
         self.load_config()
+        # Re-apply view mode now that config is loaded
+        self.set_view_mode(self.config.get('view_mode', 'compact'))
         self.start_monitoring()
 
     def setup_window(self):
@@ -244,16 +246,7 @@ class NetworkDiagnostics:
         self.status_frame = tk.Frame(self.main_frame, bg=BG, height=0)
 
         # ── View frames ────────────────────────────────────────────────────
-        self.minimal_frame = tk.Frame(self.main_frame, bg='black')
-        self.create_minimal_view()
-
-        self.compact_frame = tk.Frame(self.main_frame, bg=BG)
-        self.create_compact_view()
-
-        self.detailed_frame = tk.Frame(self.main_frame, bg=BG)
-        self.create_detailed_view()
-
-        # ── Controls bar ───────────────────────────────────────────────────
+        # ── Controls bar — packed first so it's pinned to the bottom ───────
         self.controls_frame = tk.Frame(self.main_frame, bg=BG_PANEL)
         tk.Frame(self.controls_frame, bg=BORDER, height=1).pack(fill=tk.X)
 
@@ -265,6 +258,16 @@ class NetworkDiagnostics:
         self.speedtest_btn = self._mk_btn(btn_row, "Speed Test", self.run_speed_test)
         self.speedtest_btn.pack(side=tk.LEFT)
         self._mk_btn(btn_row, "Exit", self.on_closing).pack(side=tk.RIGHT)
+
+        # ── View frames — packed after controls so they fill remaining space
+        self.minimal_frame = tk.Frame(self.main_frame, bg='black')
+        self.create_minimal_view()
+
+        self.compact_frame = tk.Frame(self.main_frame, bg=BG)
+        self.create_compact_view()
+
+        self.detailed_frame = tk.Frame(self.main_frame, bg=BG)
+        self.create_detailed_view()
 
         self.view_mode.set(self.config.get('view_mode', 'compact'))
         self.update_view_mode()
@@ -475,18 +478,18 @@ class NetworkDiagnostics:
 
         elif mode == "compact":
             self.root.overrideredirect(False)
-            self.title_frame.pack(fill=tk.X)
+            self.title_frame.pack(fill=tk.X, side=tk.TOP)
+            self.controls_frame.pack(fill=tk.X, side=tk.BOTTOM)
             self.compact_frame.pack(fill=tk.BOTH, expand=True, pady=(4, 0))
-            self.controls_frame.pack(fill=tk.X)
-            self.root.geometry("300x270")
+            self.root.geometry("300x310")
             self.toggle_btn.config(text="▾")
 
         else:  # detailed
             self.root.overrideredirect(False)
-            self.title_frame.pack(fill=tk.X)
+            self.title_frame.pack(fill=tk.X, side=tk.TOP)
+            self.controls_frame.pack(fill=tk.X, side=tk.BOTTOM)
             self.detailed_frame.pack(fill=tk.BOTH, expand=True, pady=(4, 0))
-            self.controls_frame.pack(fill=tk.X)
-            self.root.geometry("300x510")
+            self.root.geometry("300x530")
             self.toggle_btn.config(text="▴")
 
         self.config['view_mode'] = mode
