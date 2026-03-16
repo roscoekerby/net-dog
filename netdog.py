@@ -544,7 +544,8 @@ class NetworkDiagnostics:
         # Start watchdog to restart monitoring thread if it dies
         self.root.after(10000, self._watchdog)
 
-        # Auto speed test every 15 minutes
+        # Run speed test on startup, then repeat at configured interval
+        self.root.after(2000, self.run_speed_test)
         self.root.after(self.config.get('speed_test_interval', 60) * 60 * 1000, self._auto_speed_test)
 
     def _watchdog(self):
