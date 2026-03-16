@@ -169,7 +169,8 @@ class NetworkDiagnostics:
             'theme': 'light',
             'opacity': 0.9,
             'auto_start': False,
-            'view_mode': 'compact'
+            'view_mode': 'compact',
+            'speed_test_interval': 60,  # minutes
         }
 
         # Historical data (24 hours)
@@ -544,7 +545,7 @@ class NetworkDiagnostics:
         self.root.after(10000, self._watchdog)
 
         # Auto speed test every 15 minutes
-        self.root.after(15 * 60 * 1000, self._auto_speed_test)
+        self.root.after(self.config.get('speed_test_interval', 60) * 60 * 1000, self._auto_speed_test)
 
     def _watchdog(self):
         """Restart monitoring thread if it has died unexpectedly"""
@@ -993,9 +994,10 @@ class NetworkDiagnostics:
             self.minimal_ul_label.config(text=ul_text)
 
     def _auto_speed_test(self):
-        """Scheduled auto speed test every 15 minutes"""
+        """Scheduled auto speed test at the configured interval"""
         self.run_speed_test()
-        self.root.after(15 * 60 * 1000, self._auto_speed_test)
+        ms = self.config.get('speed_test_interval', 60) * 60 * 1000
+        self.root.after(ms, self._auto_speed_test)
 
     def run_speed_test(self):
         """Start a speed test in a background thread"""
@@ -1214,14 +1216,33 @@ class ConfigDialog:
         update_frame = ttk.LabelFrame(main_frame, text="Update Settings", padding="10")
         update_frame.pack(fill=tk.X, pady=(0, 10))
 
-        ttk.Label(update_frame, text="Refresh Interval (seconds):").pack(anchor=tk.W)
+        ttk.Label(update_frame, text="Ping Refresh Interval (seconds):").pack(anchor=tk.W)
         self.refresh_var = tk.StringVar(value=str(self.config['refresh_interval']))
         refresh_scale = ttk.Scale(update_frame, from_=1, to=60, variable=self.refresh_var,
                                   orient=tk.HORIZONTAL, length=200)
         refresh_scale.pack(anchor=tk.W, pady=(5, 0))
-
         refresh_label = ttk.Label(update_frame, textvariable=self.refresh_var)
         refresh_label.pack(anchor=tk.W)
+
+        ttk.Separator(update_frame, orient='horizontal').pack(fill=tk.X, pady=8)
+
+        ttk.Label(update_frame, text="Auto Speed Test Interval (minutes):").pack(anchor=tk.W)
+        self.speed_interval_var = tk.IntVar(
+            value=self.config.get('speed_test_interval', 60))
+        speed_scale = ttk.Scale(update_frame, from_=15, to=120,
+                                variable=self.speed_interval_var,
+                                orient=tk.HORIZONTAL, length=200)
+        speed_scale.pack(anchor=tk.W, pady=(5, 0))
+
+        self.speed_interval_label = ttk.Label(update_frame, text="")
+        self.speed_interval_label.pack(anchor=tk.W)
+
+        def update_speed_label(*args):
+            v = int(self.speed_interval_var.get())
+            self.speed_interval_label.config(text=f"Every {v} min  (~{v * 6:.0f} MB/day)")
+
+        self.speed_interval_var.trace('w', update_speed_label)
+        update_speed_label()
 
         # Appearance Settings
         appear_frame = ttk.LabelFrame(main_frame, text="Appearance", padding="10")
@@ -1297,6 +1318,7 @@ class ConfigDialog:
 
             self.config['ping_timeout'] = max(1, int(float(self.ping_timeout_var.get())))
             self.config['refresh_interval'] = max(1, int(float(self.refresh_var.get())))
+            self.config['speed_test_interval'] = max(15, min(120, int(self.speed_interval_var.get())))
             self.config['opacity'] = max(0.0, min(1.0, self.opacity_var.get()))
             self.config['theme'] = self.theme_var.get()
             self.config['auto_start'] = self.autostart_var.get()
@@ -1318,6 +1340,7 @@ class ConfigDialog:
             'ping_targets': ['8.8.8.8', '1.1.1.1'],
             'refresh_interval': 5,
             'ping_timeout': 3,
+            'speed_test_interval': 60,
             'theme': 'light',
             'opacity': 0.9,
             'auto_start': False,
@@ -1328,6 +1351,7 @@ class ConfigDialog:
         self.ping_targets_text.insert(tk.END, '\n'.join(defaults['ping_targets']))
         self.ping_timeout_var.set(str(defaults['ping_timeout']))
         self.refresh_var.set(str(defaults['refresh_interval']))
+        self.speed_interval_var.set(defaults['speed_test_interval'])
         self.opacity_var.set(defaults['opacity'])
         self.theme_var.set(defaults['theme'])
         self.autostart_var.set(defaults['auto_start'])
