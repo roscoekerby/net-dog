@@ -17,6 +17,8 @@ from datetime import datetime, timedelta
 import queue
 import sys
 import statistics
+if platform.system() == 'Windows':
+    import winreg
 
 # Hide console window on Windows when running as EXE
 if platform.system() == 'Windows' and getattr(sys, 'frozen', False):
@@ -162,6 +164,7 @@ class NetworkDiagnostics:
 
         # Speed test state
         self._speed_testing = False
+        self.speedtest_time_var = tk.StringVar(value="Speed test: never run")
 
     def setup_ui(self):
         """Create the user interface"""
@@ -335,6 +338,11 @@ class NetworkDiagnostics:
             elif label == "Signal:":
                 self.signal_label_detailed = label_widget
 
+        # Speed test timestamp
+        self.speedtest_time_var = tk.StringVar(value="Speed test: never run")
+        ttk.Label(perf_frame, textvariable=self.speedtest_time_var, foreground='gray',
+                  font=('Arial', 8)).grid(row=5, column=0, columnspan=2, sticky=tk.W, pady=(4, 0))
+
         # Mini graph placeholder
         graph_frame = ttk.LabelFrame(self.detailed_frame, text="Trend (Last Hour)", padding="5")
         graph_frame.pack(fill=tk.X, pady=(0, 5))
@@ -484,6 +492,9 @@ class NetworkDiagnostics:
 
         # Start watchdog to restart monitoring thread if it dies
         self.root.after(10000, self._watchdog)
+
+        # Auto speed test every 15 minutes
+        self.root.after(15 * 60 * 1000, self._auto_speed_test)
 
     def _watchdog(self):
         """Restart monitoring thread if it has died unexpectedly"""
@@ -911,6 +922,11 @@ class NetworkDiagnostics:
         data = self.collect_network_data()
         self.data_queue.put(data)
 
+    def _auto_speed_test(self):
+        """Scheduled auto speed test every 15 minutes"""
+        self.run_speed_test()
+        self.root.after(15 * 60 * 1000, self._auto_speed_test)
+
     def run_speed_test(self):
         """Start a speed test in a background thread"""
         if self._speed_testing:
@@ -943,12 +959,15 @@ class NetworkDiagnostics:
             elapsed = time.time() - start
             ul_mbps = round((len(payload) * 8) / (elapsed * 1_000_000), 1) if elapsed > 0 else 0
 
+            stamp = datetime.now().strftime("%H:%M")
             self.root.after(0, lambda: self.download_speed.set(f"{dl_mbps} Mbps"))
             self.root.after(0, lambda: self.upload_speed.set(f"{ul_mbps} Mbps"))
+            self.root.after(0, lambda: self.speedtest_time_var.set(f"Speed test: last run {stamp}"))
 
         except Exception as e:
             self.root.after(0, lambda: self.download_speed.set("Failed"))
             self.root.after(0, lambda: self.upload_speed.set("Failed"))
+            self.root.after(0, lambda: self.speedtest_time_var.set("Speed test: failed"))
         finally:
             self._speed_testing = False
             if hasattr(self, 'speedtest_btn'):
@@ -958,13 +977,41 @@ class NetworkDiagnostics:
         """Show configuration dialog"""
         ConfigDialog(self.root, self.config, self.apply_config)
 
+    def apply_autostart(self, enabled):
+        """Add or remove NetDog from Windows startup registry key"""
+        if platform.system() != 'Windows':
+            return
+        key_path = r"Software\Microsoft\Windows\CurrentVersion\Run"
+        app_name = "NetDog"
+        try:
+            key = winreg.OpenKey(winreg.HKEY_CURRENT_USER, key_path,
+                                 0, winreg.KEY_SET_VALUE)
+            if enabled:
+                # Use the running EXE path when frozen, else skip
+                exe_path = sys.executable if getattr(sys, 'frozen', False) else None
+                if exe_path:
+                    winreg.SetValueEx(key, app_name, 0, winreg.REG_SZ, f'"{exe_path}"')
+            else:
+                try:
+                    winreg.DeleteValue(key, app_name)
+                except FileNotFoundError:
+                    pass
+            winreg.CloseKey(key)
+        except Exception as e:
+            print(f"Auto-start error: {e}")
+
     def apply_config(self, new_config):
         """Apply new configuration"""
+        prev_autostart = self.config.get('auto_start', False)
         self.config.update(new_config)
         self.save_config()
 
         # Update window opacity
         self.root.attributes('-alpha', self.config['opacity'])
+
+        # Apply auto-start if the setting changed
+        if self.config['auto_start'] != prev_autostart:
+            self.apply_autostart(self.config['auto_start'])
 
     def load_config(self):
         """Load configuration from file"""
@@ -976,6 +1023,10 @@ class NetworkDiagnostics:
                     self.config.update(saved_config)
         except Exception as e:
             print(f"Error loading config: {e}")
+
+        # Re-apply auto-start in case the EXE path changed (e.g. after a reinstall)
+        if self.config.get('auto_start') and getattr(sys, 'frozen', False):
+            self.apply_autostart(True)
 
     def save_config(self):
         """Save configuration to file"""
